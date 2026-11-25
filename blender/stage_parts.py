@@ -342,6 +342,17 @@ def _crossings(a_data, b_data):
         d.calc_loop_triangles()
         return BVHTree.FromPolygons([v.co.copy() for v in d.vertices], [tuple(t.vertices) for t in d.loop_triangles])
     return len(tree(a_data).overlap(tree(b_data)))
+def _spin_crossings(cal_data, rim_data, steps=24):
+    """the most triangle pairs of the caliper and the rim that intersect at any point of a full turn of the rim about the axle (the source's
+    X axis): the rim spins and the caliper does not, so the caliper must clear the rim at every angle, not only as it rests"""
+    cal_data.calc_loop_triangles(); rim_data.calc_loop_triangles()
+    ct = BVHTree.FromPolygons([v.co.copy() for v in cal_data.vertices], [tuple(t.vertices) for t in cal_data.loop_triangles])
+    rt = [tuple(t.vertices) for t in rim_data.loop_triangles]; rv = [v.co.copy() for v in rim_data.vertices]
+    worst = 0
+    for k in range(steps):
+        rot = Matrix.Rotation(2 * math.pi * k / steps, 3, "X")
+        worst = max(worst, len(BVHTree.FromPolygons([rot @ p for p in rv], rt).overlap(ct)))
+    return worst
 
 def build_wheel(label, wheel_n, hub_n, hub_shift=None):
     """One wheel from its source meshes: a copy of the wheel joined with a copy of its hub (moved by hub_shift first), centred on its tire, and
@@ -364,7 +375,10 @@ def build_wheel(label, wheel_n, hub_n, hub_shift=None):
     W.data.transform(Matrix.Translation(-c))
 
     # 7b. the brake caliper: brake pieces that are not round (a disc or a hub cap goes all the way round the axle, a caliper covers part of the
-    # circle) hang on a hub that steers with the wheel but does not spin. It must sit inside the rim: no triangle of it may cross a triangle of the rim.
+    # circle) hang on a hub that steers with the wheel but does not spin. It must sit inside the rim: no triangle of it may cross a triangle of the
+    # rim at any angle of the rim's turn. Steering turns rim and caliper together about the same point, so it changes nothing between them; the
+    # right-hand corners carry the same caliper mirrored and the same rim turned round, which is the same clearance as the left (the turn test
+    # covers every angle of the rim).
     text = "no caliper"; warn = []
     HUBDATA = None
     _bmA = bmesh.new(); _bmA.from_mesh(W.data); _bmA.faces.ensure_lookup_table()
@@ -406,21 +420,27 @@ def build_wheel(label, wheel_n, hub_n, hub_shift=None):
         _rimR = max(math.hypot(v.co.y, v.co.z) for v in _rim.vertices)
         _band = [v.co.x * _o for v in _rim.vertices if _rmin - 0.01 <= math.hypot(v.co.y, v.co.z) <= min(_rmax + 0.01, 0.85 * _rimR)]
         _calmax = max(p.x * _o for p in _cv)
-        _n0 = _crossings(HUBDATA, _rim)
+        _n0 = _spin_crossings(HUBDATA, _rim)
         _CAP = 0.04     # a caliper is moved inboard by at most 4 cm (it hangs just behind the spokes); further than that is not the same car
         _shift = min(_CAP, max(0.0, _calmax - (min(_band) - 0.005))) if _band else 0.0
         if _n0 > 0:
             HUBDATA.transform(Matrix.Translation((-_o * _shift, 0, 0)))
-            _n = _crossings(HUBDATA, _rim)
+            _n = _spin_crossings(HUBDATA, _rim)
             while _n > 0 and _shift < _CAP:
-                HUBDATA.transform(Matrix.Translation((-_o * 0.004, 0, 0))); _shift += 0.004; _n = _crossings(HUBDATA, _rim)
-            if _n > 0:      # cannot be cleared within the cap: leave it where the source has it and say so
-                HUBDATA.transform(Matrix.Translation((_o * _shift, 0, 0))); _shift = 0.0; _n = _n0
+                HUBDATA.transform(Matrix.Translation((-_o * 0.004, 0, 0))); _shift += 0.004; _n = _spin_crossings(HUBDATA, _rim)
+            _need = None
+            if _n > 0:      # cannot be cleared within the cap: find how far it would take (up to 12 cm), then leave it where the source has it
+                _try = _shift
+                while _try < 0.12:
+                    HUBDATA.transform(Matrix.Translation((-_o * 0.004, 0, 0))); _try += 0.004
+                    if _spin_crossings(HUBDATA, _rim) == 0: _need = _try; break
+                HUBDATA.transform(Matrix.Translation((_o * _try, 0, 0))); _shift = 0.0; _n = _n0
         else:
-            _n = 0
+            _n = 0; _need = None
         bpy.data.meshes.remove(_rim)
-        text = "caliper %d triangles on a hub: %d triangle pairs crossed the rim in the source, moved inboard %.1f cm, %d cross now" % (len(HUBDATA.polygons), _n0, _shift * 100, _n)
-        if _n > 0: warn.append("caliper crosses the rim: %d triangle pairs, part hub_*, could not be cleared within 4 cm, left as the source has it" % _n)
+        text = "caliper %d triangles on a hub: %d triangle pairs crossed the turning rim in the source, moved inboard %.1f cm, %d cross now" % (len(HUBDATA.polygons), _n0, _shift * 100, _n)
+        if _n > 0: warn.append("caliper crosses the turning rim: %d triangle pairs, part hub_*, could not be cleared within 4 cm (%s), left as the source has it" % (
+            _n, "moving it %.1f cm inboard would clear it, which is no longer the same car" % (_need * 100) if _need else "even 12 cm inboard would not clear it: the caliper needs a smaller shape or the rim a deeper dish"))
     else:
         _bmA.free()
     data = W.data
