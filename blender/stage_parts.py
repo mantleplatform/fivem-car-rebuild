@@ -125,6 +125,9 @@ def print_job(mn, kind=None):
 def lamp_shader(m):
     sp = getattr(m, "shader_properties", None) if m else None
     return "lightsemissive" in (getattr(sp, "name", "") or "")
+def glass_shader(m):
+    sp = getattr(m, "shader_properties", None) if m else None
+    return "vehglass" in (getattr(sp, "name", "") or "")
 def face_light_ids(o_):
     ca = o_.data.color_attributes[0] if len(o_.data.color_attributes) else None
     if ca is None: return None
@@ -306,6 +309,7 @@ def job_of(mn, part):
     if part in MIRRORS:
         return rx_first(MIRRORRULES, b) or "plastic_black"
     j = rx_first(GENERIC, b) or "plastic_black"
+    if j == "plastic_black" and glass_shader(bpy.data.materials.get(mn)): j = "glass"   # GTA's glass shader under a name no rule knows (a lamp cover)
     if j == "PRIMARY": livery_job(mn)      # a settings rule (material_jobs comes first) can still keep a picture off the livery
     elif j == "SECONDARY" or lamp_shader(bpy.data.materials.get(mn)): j = print_job(mn) or j   # the lamp-shader faces then glow per face, below
     return j
@@ -332,6 +336,18 @@ for n, o in P.items():
             _ids = _ids or face_light_ids(o) or []
             for p in me.polygons:
                 if p.material_index == i and p.index < len(_ids) and _ids[p.index] in ID_KIND: LIVERY_GLOW[ID_KIND[_ids[p.index]]] += 1
+            continue
+        if newslots[i] == "plastic_black" and not any(n.startswith(pre) for pre, _j in LIGHT_PARTS) and n not in WJOBS:
+            # A lamp outside the lamp parts (a headlight built into the body): GTA lights each face by its ID. A face whose ID names a
+            # light becomes that light's lens; the rest is the lamp's inside (reflector), not black plastic.
+            _ids = _ids or face_light_ids(o) or []
+            _kj = {"head": "head_lens", "rear": "tail_lens", "left": "indicator_lens", "right": "indicator_lens", "reverse": "reverse_lens"}
+            _c = collections.Counter()
+            for p in me.polygons:
+                if p.material_index != i: continue
+                _k = ID_KIND.get(_ids[p.index]) if p.index < len(_ids) else None
+                facejob[p.index] = _kj.get(_k, "reflector"); _c[facejob[p.index]] += 1
+            L("lamp %s in %s: %s" % (sn, n, dict(_c)))
             continue
         if not newslots[i].startswith("print"): continue
         _ids = _ids or face_light_ids(o)
@@ -369,6 +385,25 @@ for k in PICJOBS:
         if JOBTRIS[k]: L("picture %s: none readable (flat colour)" % k)
         continue
     im = DDS[pn + ".dds"]
+    if k in ("head_lens", "reverse_lens") and k not in S["pictures"]:
+        # GTA lamp pictures are atlases: a lens often lands on a dark or coloured patch (a black lamp, an orange headlight). What the lens
+        # faces actually show is measured; a dark or strongly coloured result gets the plain clear lens instead.
+        import numpy as _np
+        _w, _h = im.size; _px = _np.empty(_w * _h * 4, dtype=_np.float32); im.pixels.foreach_get(_px); _px = _px.reshape(_h, _w, 4)
+        _cols = []
+        for _o in P.values():
+            _me = _o.data
+            if not _me.uv_layers or M[k].name not in [m_.name for m_ in _me.materials if m_]: continue
+            _mi = [m_.name if m_ else "" for m_ in _me.materials].index(M[k].name); _uv = _me.uv_layers[0].data
+            for _p in _me.polygons:
+                if _p.material_index != _mi: continue
+                _u = sum(_uv[li].uv.x for li in _p.loop_indices) / _p.loop_total; _v = sum(_uv[li].uv.y for li in _p.loop_indices) / _p.loop_total
+                _cols.append(_px[int((_v % 1.0) * (_h - 1)), int((_u % 1.0) * (_w - 1)), :3])
+        if _cols:
+            _c = _np.mean(_cols, axis=0); _lum = float(_c @ _np.array([0.2126, 0.7152, 0.0722])); _sat = float((_c.max() - _c.min()) / max(_c.max(), 1e-6))
+            if _lum < 0.35 or _sat > 0.4:
+                L("picture %s: %s shows %s on the lens faces (brightness %.2f, colour %.2f): plain clear lens instead" % (k, im.name, tuple(round(float(x), 2) for x in _c), _lum, _sat))
+                continue
     nt = M[k].node_tree; pb = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
     tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = im; tex.label = "diffuse"
     if k in S["tint"]:     # picture x colour, baked into a copy of the picture (Mantle reads the picture, not a glTF colour factor)
@@ -641,3 +676,72 @@ def drop_glass_shells(gap=0.015):
             removed += len(kill)
     return removed
 L("glass shells: %d inner glass faces dropped (the outer surface lies right behind them)" % drop_glass_shells())
+
+# ---- 9. lamps, finished on the grouped parts (before the source snapshot the before/after check compares with, so the check sees them as
+# the source): glass covering a lamp becomes that lamp, and lenses and paint stripes lying on another surface move 2 mm out.
+import collections
+from mathutils import Vector
+objs = [o for o in bpy.data.objects if o.type == "MESH"]
+GL = re.compile(r"glass|lens", re.I)
+# A lamp's outer cover made of window glass (some cars cover their tail lights with the window shader): it showed as dark tinted window
+# over the lamp. A glass face with a lamp lens right behind it (under 6 cm, facing the same way) becomes a lamp cover: red over a tail
+# lamp, the clear lens over any other.
+from mathutils.kdtree import KDTree
+_covers = collections.Counter()
+for _o in objs:
+    _me = _o.data
+    _mn = [m.name if m else "" for m in _me.materials]
+    if "glass" not in _mn or not any("lens" in n_ for n_ in _mn): continue
+    _gi = _mn.index("glass")
+    _lf = [p for p in _me.polygons if "lens" in _mn[p.material_index]]
+    _kd = KDTree(len(_lf))
+    for j_, p in enumerate(_lf): _kd.insert(p.center, j_)
+    _kd.balance()
+    for p in _me.polygons:
+        if p.material_index != _gi: continue
+        for co, j_, d in _kd.find_n(p.center, 4):
+            q = _lf[j_]; _off = p.center - co; _along = _off.dot(p.normal)
+            if d < 0.06 and q.normal.dot(p.normal) > 0.6 and -0.005 < _along < 0.06 and (_off - p.normal * _along).length < 0.06:
+                # a cover over a red tail lamp is red; over any other lamp (head, indicator, reverse) it is the clear lens
+                _tgt = q.material_index if _mn[q.material_index] == M["tail_lens"].name else None
+                if _tgt is None:
+                    if M["head_lens"].name not in _mn: _me.materials.append(M["head_lens"]); _mn.append(M["head_lens"].name)
+                    _tgt = _mn.index(M["head_lens"].name)
+                p.material_index = _tgt; _covers[_mn[_tgt]] += 1
+                break
+    _me.update()
+if _covers: L("glass lamp covers made part of their lamp: %s" % dict(_covers))
+
+# A lamp lens lying on its own housing (the same surface, under 6 mm apart): GTA draws the lamp shader over it, but in the game the two
+# fight for the same pixels and the lens shows as broken-up triangles. Each such lens face's corners move 2 mm out, the way it faces.
+# The same for paint-coloured stripes laid on the interior (seat stripes in the body colour): they move 2 mm off the leather.
+from mathutils.kdtree import KDTree
+_nudged = 0
+def _overlay(mn): return "lens" in mn or mn in ("PRIMARY", "SECONDARY")
+def _under(top, mn): return not GL.search(mn) if "lens" in top else mn.startswith("interior")
+for _o in objs:
+    _me = _o.data
+    if not _me.polygons: continue
+    _mn = [m.name if m else "" for m in _me.materials]
+    _lens = [p for p in _me.polygons if p.material_index < len(_mn) and _overlay(_mn[p.material_index])]
+    if not _lens: continue
+    _kd = KDTree(len(_me.polygons))
+    for p in _me.polygons:
+        if not (p.material_index < len(_mn) and "lens" in _mn[p.material_index]): _kd.insert(p.center, p.index)
+    _kd.balance()
+    _move = collections.defaultdict(Vector)
+    for p in _lens:
+        _top = _mn[p.material_index]
+        for co, i, d in _kd.find_range(p.center, 0.02):
+            q = _me.polygons[i]
+            if not _under(_top, _mn[q.material_index] if q.material_index < len(_mn) else ""): continue
+            _gap = (p.center - co).dot(p.normal)
+            if abs(q.normal.dot(p.normal)) > 0.95 and abs(_gap) < 0.006:
+                for v in p.vertices: _move[v] += p.normal if _gap >= -0.0005 else -p.normal   # away from the housing (outward when they touch)
+                break
+    for v, n_ in _move.items():
+        _me.vertices[v].co += n_.normalized() * 0.002
+    _nudged += len(_move)
+    _me.update()
+if _nudged: L("lenses on their housing, paint stripes on the interior: %d corners moved 2 mm out" % _nudged)
+
