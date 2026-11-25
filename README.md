@@ -150,6 +150,6 @@ A good order for a new car: run it with no settings, read the log, look at the p
 
 ## After the script: getting the car into Mantle
 
-The rebuilt GLB goes into Unreal Engine with the Mantle Core plugin, which turns it into a Mantle vehicle and uploads it. See [Build a vehicle](https://mantleplatform.com/docs/creators/vehicles/) in the Mantle docs for the steps.
+The rebuilt GLB goes into Unreal Engine with the Mantle Core plugin, which turns it into a Mantle vehicle and uploads it. See [Bringing in a FiveM car](https://mantleplatform.com/docs/creators/vehicles/#fivem) in the Mantle docs for the steps.
 
-Use `<name>_paint.json` there: `secondary` is the second paint color to start with (the material is named `SECONDARY`), and `steering_wheel_bone` is the bone the steering wheel turns on.
+Use `<name>_paint.json` there: `secondary` is the second paint color's starting finish or color (the material is named `SECONDARY`), and `steering_wheel_bone` is the bone to enter under **Show its settings > Driver > Steering Wheel Bone** so the steering wheel turns.
