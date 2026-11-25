@@ -63,6 +63,7 @@ if arm is None:
 if any(".ytd" in l for l in import_err):
     finish_fail("skipped", "ytd unreadable: " + import_err[0])
 bones = {b.name: Vector(arm.matrix_world @ b.head_local) for b in arm.data.bones}
+BONE_PARENT = {b.name: (b.parent.name if b.parent else None) for b in arm.data.bones}
 # A two-wheeler has only wheel_lf and wheel_lr bones. This script builds four-wheel cars only.
 BIKE = all(n in bones for n in ("wheel_lf", "wheel_lr")) and not any(n in bones for n in ("wheel_rf", "wheel_rr", "wheel_lm1", "wheel_rm1"))
 if BIKE:

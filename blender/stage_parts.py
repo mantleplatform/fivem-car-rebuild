@@ -211,6 +211,22 @@ for n, o in P.items():       # a small piece beside a front door, out at its out
         # out at the door's outer edge, but no farther than a mirror reaches (a piece far beyond it is a stray, not a mirror)
         if c.x * side > 0 and outer - 0.08 <= abs(c.x) <= outer + 0.45 and lo_[1] - 0.15 <= c.y <= hi_[1] + 0.15:
             JOIN[n] = dn; MIRRORS.add(n); break
+# A piece whose bone hangs from an opener in the source moves with it in GTA: a hatchback's rear glass, spoiler and struts, and the
+# inner half of a split tail light, on the boot. Lamps count here (the outer half of a split lamp hangs from the body and stays).
+# Only when the piece really sits on the opener (its middle inside the opener's box, 5 cm slack): modders also hang pieces far off
+# the boot from it (a pickup's cab-roof brake light on the tailgate), and those stay on the body.
+SKIPPARENT = re.compile(r"^(window_|wheel_|hub_|steeringwheel|bodyshell|chassis|dials)")
+def _wbox(o_):
+    ws_ = [v.co for v in o_.data.vertices]     # meshes are in world space here (step 1)
+    return [min(p[i] for p in ws_) for i in range(3)], [max(p[i] for p in ws_) for i in range(3)]
+for n in P:
+    if n in OPENERS or n in JOIN or SKIPPARENT.match(n) or n in S["no_auto_join"]: continue
+    op = BONE_PARENT.get(n)
+    if op not in OPENERS or not P[n].data.vertices or not P[op].data.vertices: continue
+    (lo_, hi_), (olo, ohi) = _wbox(P[n]), _wbox(P[op])
+    mid = [(lo_[i] + hi_[i]) / 2 for i in range(3)]
+    if all(olo[i] - 0.05 <= mid[i] <= ohi[i] + 0.05 for i in range(3)): JOIN[n] = op
+    else: L("bone of %s hangs from %s, but the piece is not on it: left on the body" % (n, op))
 for a, b in S["join"].items():
     if a in P and b in P: JOIN[a] = b
 for a in S["mirror_parts"]: MIRRORS.add(a)
