@@ -294,6 +294,7 @@ if LIVERY_SRC:
     lpath = os.path.join(out, name + "_livery.png")
     img.filepath_raw = lpath; img.file_format = "PNG"; img.save()
     LIVERY_PAINT.update({"livery": os.path.basename(lpath), "primary": {"color": [round(c, 4) for c in lin], "finish": "gloss"}})
+    if LIVERY_GLOW: LIVERY_PAINT["livery_glow"] = LIVERY_GLOW.most_common(1)[0][0]   # GTA lit it with this light (the source's lamp shader)
     L("livery: %d triangles copied from %s onto the paint layout, %.1f%% of the sheet covered, starting paint colour %s (sRGB %s); %s" % (
         done, sorted({im_.name for im_ in LIVERY_SRC.values()}), 100.0 * covered.mean(), [round(c, 3) for c in lin], [round(float(c), 3) for c in srgb], lpath))
 if "livery_src" in me.uv_layers: me.uv_layers.remove(me.uv_layers["livery_src"])

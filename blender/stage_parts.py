@@ -75,6 +75,7 @@ PRINTS = {}
 PRINT_MIN = 512
 LIVERY_SRC = {}       # source material -> its picture, for the livery
 LIVERY_PAINT = {}     # written to <name>_paint.json by stage_rig_export
+LIVERY_GLOW = collections.Counter()   # livery faces on GTA's lamp shader, by the Mantle light their ID names
 def print_picture(mn):
     d = diffuse_name(bpy.data.materials.get(mn))
     if not d or (d + ".dds") not in DDS or re.match(r"vehicle_generic|blank|black|white|grey", d): return None, None
@@ -86,22 +87,64 @@ def livery_job(mn):
     if mn not in LIVERY_SRC: L("livery <- %s picture %s (%dx%d): body paint with a printed picture; the faces stay paint" % (mn, im.name, im.size[0], im.size[1]))
     LIVERY_SRC[mn] = im
     return "PRIMARY"
-def print_job(mn):
+def print_job(mn, kind=None):
+    """the print material for this source material's picture; kind = a Mantle light kind makes it <print>_glow_<kind>: the same picture,
+    also as its glow (the marker Mantle reads for "keeps its own picture and glows with that light")"""
     d, im = print_picture(mn)
     if d is None: return None
-    if d not in PRINTS:
-        key = "print" if not PRINTS else "print_%d" % (len(PRINTS) + 1)
+    if (d, kind) not in PRINTS:
+        base_ = next((k_ for (p_, kk), k_ in PRINTS.items() if p_ == d and kk is None), None) or next((re.sub(r"_glow_\w+$", "", k_) for (p_, kk), k_ in PRINTS.items() if p_ == d), None)
+        if base_ is None:
+            n_ = len({p_ for p_, kk in PRINTS})
+            base_ = "print" if n_ == 0 else "print_%d" % (n_ + 1)
+        key = base_ + ("_glow_" + kind if kind else "")
         M[key] = mk(key, (0.8, 0.8, 0.8), rough=0.3)
         if max(im.size) > 2048:
-            im2 = im.copy(); im2.name = d + "_2048.png"
-            im2.scale(min(2048, im.size[0] * 2048 // max(im.size)), min(2048, im.size[1] * 2048 // max(im.size)))
+            im2 = bpy.data.images.get(d + "_2048.png")
+            if im2 is None:
+                im2 = im.copy(); im2.name = d + "_2048.png"
+                im2.scale(min(2048, im.size[0] * 2048 // max(im.size)), min(2048, im.size[1] * 2048 // max(im.size)))
             L("print %s: picture %s scaled %dx%d -> %dx%d" % (key, im.name, im.size[0], im.size[1], im2.size[0], im2.size[1])); im = im2
         nt = M[key].node_tree; pb = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
         tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = im; tex.label = "diffuse"
         nt.links.new(tex.outputs["Color"], pb.inputs["Base Color"])
-        PRINTS[d] = key
-        L("print %s <- picture %s (%dx%d): a livery printed on the paint, kept as a picture" % (key, im.name, im.size[0], im.size[1]))
-    return PRINTS[d]
+        _a = __import__("numpy").empty(im.size[0] * im.size[1] * 4, "float32"); im.pixels.foreach_get(_a)
+        if _a[3::4].min() < 0.5:     # see-through parts in the picture (cut-out): kept cut out (glTF alpha mask)
+            rnd = nt.nodes.new("ShaderNodeMath"); rnd.operation = "ROUND"
+            nt.links.new(tex.outputs["Alpha"], rnd.inputs[0]); nt.links.new(rnd.outputs[0], pb.inputs["Alpha"])
+        if kind:
+            nt.links.new(tex.outputs["Color"], pb.inputs["Emission Color"]); pb.inputs["Emission Strength"].default_value = 1.0
+        PRINTS[(d, kind)] = key
+        L("print %s <- picture %s (%dx%d)%s" % (key, im.name, im.size[0], im.size[1], ", glows with the %s lights" % kind if kind else ""))
+    return PRINTS[(d, kind)]
+
+# GTA's lamp shader (vehicle_lightsemissive): a surface on it glows when its light is on, and which light is the light ID in its vertex colour's
+# alpha. The car's own lamps tell which ID is which Mantle light (a headlight part's ID is a headlight); an ID no lamp of the car names stays
+# unlit, never guessed. Pictures on this shader outside the lamps (a body livery, wheel covers, trim) glow with the light their ID names.
+def lamp_shader(m):
+    sp = getattr(m, "shader_properties", None) if m else None
+    return "lightsemissive" in (getattr(sp, "name", "") or "")
+def face_light_ids(o_):
+    ca = o_.data.color_attributes[0] if len(o_.data.color_attributes) else None
+    if ca is None: return None
+    out_ = []
+    for p_ in o_.data.polygons:
+        li = p_.loop_indices[0]
+        out_.append(int(round(ca.data[li if ca.domain == "CORNER" else o_.data.loops[li].vertex_index].color[3] * 255)))
+    return out_
+LAMP_KIND = (("headlight", "head"), ("taillight", "rear"), ("brakelight", "rear"), ("reversinglight", "reverse"), ("indicator_l", "left"), ("indicator_r", "right"))
+ID_KIND = {}
+_idk = collections.defaultdict(collections.Counter)
+for n_, o_ in P.items():
+    k_ = next((k for pre, k in LAMP_KIND if n_.startswith(pre)), None)
+    ids_ = face_light_ids(o_) if k_ else None
+    if not ids_: continue
+    for p_, i_ in zip(o_.data.polygons, ids_):
+        if lamp_shader(o_.material_slots[p_.material_index].material if p_.material_index < len(o_.material_slots) else None): _idk[i_][k_] += 1
+for i_, c_ in _idk.items():
+    if len(c_) == 1: ID_KIND[i_] = next(iter(c_))
+    else: L("light ID %d is on lamps of several kinds %s: left unlit" % (i_, dict(c_)))
+L("light IDs from the car's own lamps: %s" % ID_KIND)
 def rx_first(rules, b):
     for rx, job in rules:
         if re.search(rx, b, re.I): return job
@@ -220,7 +263,7 @@ def job_of(mn, part):
         return rx_first(MIRRORRULES, b) or "plastic_black"
     j = rx_first(GENERIC, b) or "plastic_black"
     if j == "PRIMARY": livery_job(mn)      # a settings rule (material_jobs comes first) can still keep a picture off the livery
-    elif j == "SECONDARY": j = print_job(mn) or j
+    elif j == "SECONDARY" or lamp_shader(bpy.data.materials.get(mn)): j = print_job(mn) or j   # the lamp-shader faces then glow per face, below
     return j
 
 INNER_RX = S["inner_material_regex"]
@@ -237,22 +280,36 @@ for n, o in P.items():
             c = p.center
             att.data[p.index].value = 1 if (p.normal.x * c.x + p.normal.y * c.y) < -0.002 else 0
     newslots = {i: job_of(sn, n) for i, sn in enumerate(slots)}
+    facejob = [newslots[p.material_index] for p in me.polygons]
+    _ids = None
+    for i, sn in enumerate(slots):     # a print on GTA's lamp shader: each face glows with the light its ID names (an unknown ID: no glow)
+        if not lamp_shader(bpy.data.materials.get(sn)): continue
+        if sn in LIVERY_SRC:     # the livery's own glow is Mantle's per-livery setting: only noted here (<name>_paint.json "livery_glow")
+            _ids = _ids or face_light_ids(o) or []
+            for p in me.polygons:
+                if p.material_index == i and p.index < len(_ids) and _ids[p.index] in ID_KIND: LIVERY_GLOW[ID_KIND[_ids[p.index]]] += 1
+            continue
+        if not newslots[i].startswith("print"): continue
+        _ids = _ids or face_light_ids(o)
+        if not _ids: continue
+        for p in me.polygons:
+            if p.material_index == i and _ids[p.index] in ID_KIND: facejob[p.index] = print_job(sn, ID_KIND[_ids[p.index]])
     _sa = me.attributes.new("srcmat", "INT", "FACE")   # which source material each face came from (kept for the log and for fixing a car by hand)
     for p in me.polygons:
         _sn = slots[p.material_index]
         if _sn not in SRCLIST: SRCLIST.append(_sn)
         _sa.data[p.index].value = SRCLIST.index(_sn)
     for p in me.polygons:
-        JOBTRIS[newslots[p.material_index]][slots[p.material_index]] += 1
+        JOBTRIS[facejob[p.index]][slots[p.material_index]] += 1
     orig = [pp.material_index for pp in me.polygons]
     srcmats = {sn: bpy.data.materials.get(sn) for sn in slots}
     for sn, m_ in srcmats.items(): SRCMAT[sn] = m_
     me.materials.clear()
     names_ = []
-    for tn in dict.fromkeys(newslots.values()):
+    for tn in dict.fromkeys(facejob):
         me.materials.append(M[tn]); names_.append(tn)
-    for p, oi in zip(me.polygons, orig):
-        p.material_index = names_.index(newslots[oi])
+    for p in me.polygons:
+        p.material_index = names_.index(facejob[p.index])
 
 for _k in M:
     if JOBTRIS[_k]:
