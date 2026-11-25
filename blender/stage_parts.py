@@ -78,7 +78,8 @@ LIVERY_PAINT = {}     # written to <name>_paint.json by stage_rig_export
 LIVERY_GLOW = collections.Counter()   # livery faces on GTA's lamp shader, by the Mantle light their ID names
 def print_picture(mn):
     d = diffuse_name(bpy.data.materials.get(mn))
-    if not d or (d + ".dds") not in DDS or re.match(r"vehicle_generic|blank|black|white|grey", d): return None, None
+    # script_rt_* are GTA's placeholders for screens the game draws while playing (dials, displays): blank in the files, never a print
+    if not d or (d + ".dds") not in DDS or re.match(r"vehicle_generic|blank|black|white|grey|script_rt", d): return None, None
     im = DDS[d + ".dds"]
     return (d, im) if max(im.size) >= PRINT_MIN else (None, None)
 def livery_job(mn):
