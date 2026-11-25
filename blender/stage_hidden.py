@@ -24,6 +24,34 @@ def check(tag, tol):
     for w in r["where"]: L("   " + w)
     return r
 
+# A lamp lens lying on its own housing (the same surface, under 6 mm apart): GTA draws the lamp shader over it, but in the game the two
+# fight for the same pixels and the lens shows as broken-up triangles. Each such lens face's corners move 2 mm out, the way it faces.
+from mathutils.kdtree import KDTree
+_nudged = 0
+for _o in objs:
+    _me = _o.data
+    if not _me.polygons: continue
+    _mn = [m.name if m else "" for m in _me.materials]
+    _lens = [p for p in _me.polygons if p.material_index < len(_mn) and "lens" in _mn[p.material_index]]
+    if not _lens: continue
+    _kd = KDTree(len(_me.polygons))
+    for p in _me.polygons:
+        if not (p.material_index < len(_mn) and GL.search(_mn[p.material_index])): _kd.insert(p.center, p.index)
+    _kd.balance()
+    _move = collections.defaultdict(Vector)
+    for p in _lens:
+        for co, i, d in _kd.find_range(p.center, 0.02):
+            q = _me.polygons[i]
+            _gap = (p.center - co).dot(p.normal)
+            if abs(q.normal.dot(p.normal)) > 0.95 and abs(_gap) < 0.006:
+                for v in p.vertices: _move[v] += p.normal if _gap >= -0.0005 else -p.normal   # away from the housing (outward when they touch)
+                break
+    for v, n_ in _move.items():
+        _me.vertices[v].co += n_.normalized() * 0.002
+    _nudged += len(_move)
+    _me.update()
+if _nudged: L("lenses on their housing: %d lens corners moved 2 mm out" % _nudged)
+
 # Where people look from. Rays leaving a face at a few fixed angles miss the narrow view a footwell or kick panel has through a window, so a face
 # also counts as seen when a straight line reaches it from an eye in the cabin (over each seat, from the source's seat bones) or from outside an
 # open door. Without this the step removed the footwell walls and the wheel arch showed through (Camaro, BMW: daylight under the dash).
