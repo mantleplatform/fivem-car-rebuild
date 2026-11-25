@@ -66,6 +66,29 @@ def diffuse_name(m):
     return n.image.name.lower().replace(".dds", "") if n is not None else None
 
 def base(mn): return re.sub(r"\.\d{3}$", "", mn)
+# A printed livery: paint (PRIMARY / SECONDARY in the source) whose own picture is in the car's files is a picture printed on the body, not a
+# colour players choose. It keeps its picture (and its own UVs) as a "print" material instead of becoming plain paint: Mantle would make a
+# paint section's picture a grey tint mask. Each printed picture gets its own material (print, print_2 ...), at most 2048 px (Mantle's cap).
+PRINTS = {}
+PRINT_MIN = 512
+def print_job(mn):
+    d = diffuse_name(bpy.data.materials.get(mn))
+    if not d or (d + ".dds") not in DDS or re.match(r"vehicle_generic|blank|black|white|grey", d): return None
+    im = DDS[d + ".dds"]
+    if max(im.size) < PRINT_MIN: return None
+    if d not in PRINTS:
+        key = "print" if not PRINTS else "print_%d" % (len(PRINTS) + 1)
+        M[key] = mk(key, (0.8, 0.8, 0.8), rough=0.3)
+        if max(im.size) > 2048:
+            im2 = im.copy(); im2.name = d + "_2048.png"
+            im2.scale(min(2048, im.size[0] * 2048 // max(im.size)), min(2048, im.size[1] * 2048 // max(im.size)))
+            L("print %s: picture %s scaled %dx%d -> %dx%d" % (key, im.name, im.size[0], im.size[1], im2.size[0], im2.size[1])); im = im2
+        nt = M[key].node_tree; pb = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+        tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = im; tex.label = "diffuse"
+        nt.links.new(tex.outputs["Color"], pb.inputs["Base Color"])
+        PRINTS[d] = key
+        L("print %s <- picture %s (%dx%d): a livery printed on the paint, kept as a picture" % (key, im.name, im.size[0], im.size[1]))
+    return PRINTS[d]
 def rx_first(rules, b):
     for rx, job in rules:
         if re.search(rx, b, re.I): return job
@@ -182,7 +205,10 @@ def job_of(mn, part):
             return job
     if part in MIRRORS:
         return rx_first(MIRRORRULES, b) or "plastic_black"
-    return rx_first(GENERIC, b) or "plastic_black"
+    j = rx_first(GENERIC, b) or "plastic_black"
+    if j in ("PRIMARY", "SECONDARY"):     # a settings rule can still send a print to plain paint (material_jobs comes first)
+        j = print_job(mn) or j
+    return j
 
 INNER_RX = S["inner_material_regex"]
 for n, o in P.items():

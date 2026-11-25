@@ -23,6 +23,9 @@ car["part_names"] = json.dumps(names)
 car["src_names"] = json.dumps(SRCLIST)
 me = car.data
 mats = {m.name: i for i, m in enumerate(me.materials)}
+for _need in ("PRIMARY", "plastic_black"):   # a car whose paint is all printed livery has no PRIMARY faces; the steps below still need the slot
+    if _need not in mats:
+        me.materials.append(bpy.data.materials[_need]); mats[_need] = len(me.materials) - 1
 pm = mats["PRIMARY"]; bk = mats["plastic_black"]
 
 bm = bmesh.new(); bm.from_mesh(me); bm.faces.ensure_lookup_table(); bm.verts.ensure_lookup_table()

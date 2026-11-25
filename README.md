@@ -144,7 +144,9 @@ A good order for a new car: run it with no settings, read the log, look at the p
 - The car must have a front wheel mesh (`wheel_lf` or `wheel_rf`) and rear wheel bones (`wheel_lr` / `wheel_rr`) or a rear wheel mesh. A car with its own rear wheel or rear brake mesh gets those at the back; otherwise the front wheel is used at all four corners.
 - Doors, hood and trunk are found by GTA's names (`door_dside_f`, `door_pside_f`, `door_dside_r`, `door_pside_r`, `bonnet`, `boot`). A car that names them differently (a `tailgate`) gets no opening part for it.
 - Textures Sollumz can't read stay flat color. Decals, and materials whose picture is missing, become black plastic unless a setting says otherwise.
-- Paint layout uses 30 to 45% of the livery sheet; window frames and fender shapes leave gaps.
+- A livery printed on the paint (a paint material with its own picture in the car's files, at least 512 px) is kept as its own picture, in materials named `print`, `print_2` and so on, at most 2048 px. Players can't recolor those parts. To make one plain paint instead, send it to `PRIMARY` with `material_jobs`.
+- Some cars put their livery on GTA's lamp shader, so the body glows when the headlights are on. That glow does not carry over yet; the livery does.
+- Paint layout uses 30 to 45% of the livery sheet; window frames and fender shapes leave gaps. The layout can come out packed a little differently from one run to the next.
 - Thinning can tear thin parts, so thin bars and brackets are never thinned. Use `protect_from_thinning` for anything else that tears.
 - The check does not see color or very small spikes. Always look at the pictures.
 

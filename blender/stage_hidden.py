@@ -283,7 +283,7 @@ BUDGET_STEPS = [
     ("merge flat triangles (3 degrees)", lambda: op_dissolve(3), 0.04),
     ("drop pieces under 8 cm", lambda: op_drop_small(0.08), 0.04),
     ("thin dense interior and engine pieces", lambda: op_thin(THIN, 0.3), 0.04),
-    ("thin dense paint pieces too", lambda: op_thin(THIN | {"PRIMARY", "SECONDARY", "rim"}, 0.45), 0.04),
+    ("thin dense paint pieces too", lambda: op_thin(THIN | {"PRIMARY", "SECONDARY", "rim"} | set(PRINTS.values()), 0.45), 0.04),
     ("wheels to 5000 triangles each", lambda: op_wheels(5000), 0.04),
 ]
 for _label, _fn, _tol in BUDGET_STEPS:
