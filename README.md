@@ -59,7 +59,8 @@ Everything goes into `output\<name>\`:
 |---|---|
 | `<name>_skinned.glb` | The rebuilt car. This is the file you import into Unreal. |
 | `<name>_check.json` | The result, the check numbers, the steps that ran, warnings and materials. |
-| `<name>_paint.json` | Values for the upload step: the starting second paint color and the steering wheel bone name. |
+| `<name>_paint.json` | Values for the upload step: the starting second paint color, the steering wheel bone name, and for a car with a livery, the livery file and the body's starting color. |
+| `<name>_livery.png` | Only for a car whose paint carries a printed picture: its livery, made for the rebuilt car's paint layout. Add it in the vehicle builder's Liveries step. |
 | `<name>_rebuild_log.txt` | Everything the script decided, step by step. Read this when something looks wrong. |
 | `<name>_blender_stdout.txt` | Blender's own output, for errors. |
 | `pictures\after_*.png` | Review pictures (see below). |
@@ -85,6 +86,7 @@ They are simple Blender pictures (flat lighting, body paint shown red) with the 
 - `after_grid_*`: a test grid on the paint. This is how a livery will sit on the car. The grid should be even, not stretched or torn.
 - `after_lights_*`: the lamps up close.
 - `after_shade_*`: the shading on the door and hood. It should be smooth with crisp edges.
+- `after_livery_*`: only for a car with a livery: the car wearing it over its starting paint color.
 
 ## What the check means
 
@@ -144,7 +146,8 @@ A good order for a new car: run it with no settings, read the log, look at the p
 - The car must have a front wheel mesh (`wheel_lf` or `wheel_rf`) and rear wheel bones (`wheel_lr` / `wheel_rr`) or a rear wheel mesh. A car with its own rear wheel or rear brake mesh gets those at the back; otherwise the front wheel is used at all four corners.
 - Doors, hood and trunk are found by GTA's names (`door_dside_f`, `door_pside_f`, `door_dside_r`, `door_pside_r`, `bonnet`, `boot`). A car that names them differently (a `tailgate`) gets no opening part for it.
 - Textures Sollumz can't read stay flat color. Decals, and materials whose picture is missing, become black plastic unless a setting says otherwise.
-- A livery printed on the paint (a paint material with its own picture in the car's files, at least 512 px) is kept as its own picture, in materials named `print`, `print_2` and so on, at most 2048 px. Players can't recolor those parts. To make one plain paint instead, send it to `PRIMARY` with `material_jobs`.
+- A livery printed on the body paint (a paint material with its own picture in the car's files, at least 512 px) becomes a real Mantle livery: the body stays plain paint, and the picture is copied onto the rebuilt paint layout as `<name>_livery.png` (2048 px, see-through where the paint has no picture). Players can switch it off and recolor the paint under it. To keep a picture off the livery, send its material to `PRIMARY` with `material_jobs`.
+- Where paint and livery can't be told apart (a picture on the second paint color), the picture stays on the car itself in materials named `print`, `print_2` and so on, at most 2048 px. Players can't recolor those parts.
 - Some cars put their livery on GTA's lamp shader, so the body glows when the headlights are on. That glow does not carry over yet; the livery does.
 - Paint layout uses 30 to 45% of the livery sheet; window frames and fender shapes leave gaps. The layout can come out packed a little differently from one run to the next.
 - Thinning can tear thin parts, so thin bars and brackets are never thinned. Use `protect_from_thinning` for anything else that tears.
