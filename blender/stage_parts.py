@@ -166,6 +166,30 @@ if FRONT_W is None:
 if REAR_W is None and not any(b_ in BONES for b_ in ("wheel_lr", "wheel_rr")):
     fail("no rear wheel bones: the model has no wheel_lr or wheel_rr bone, so the rear wheels have nowhere to go")
 WHEEL_SRC = {n_ for n_ in (FRONT_W, REAR_W, FRONT_H, REAR_H) if n_}
+# A piece whose bone hangs from a wheel bone spins with that wheel in GTA: some cars carry their real rim this way, on top of a plain
+# wheel model. It becomes part of its wheel when that wheel is one of the sources above; otherwise (the other corners, which are built
+# from the sources) it is dropped. Meshes are in world space here, so they join as they are.
+def _join_into(dst, src):
+    me_ = P[dst].data; sm = P[src].data
+    remap = []
+    for sl in sm.materials:
+        if sl is None or sl.name not in [m_.name for m_ in me_.materials if m_]:
+            me_.materials.append(sl)
+        remap.append(next(i_ for i_, m_ in enumerate(me_.materials) if m_ == sl))
+    bm_ = bmesh.new(); bm_.from_mesh(me_); n0 = len(bm_.faces)
+    tmp = sm.copy()
+    for p_ in tmp.polygons: p_.material_index = remap[p_.material_index] if p_.material_index < len(remap) else 0
+    bm_.from_mesh(tmp); bpy.data.meshes.remove(tmp)
+    bm_.to_mesh(me_); bm_.free()
+    return len(me_.polygons) - n0
+for n in list(P):
+    par = BONE_PARENT.get(n.split(".")[0], "") or ""
+    if n in WHEEL_SRC or not par.startswith(("wheel_", "hub_")) or n in S["no_auto_join"]: continue
+    if par in WHEEL_SRC:
+        L("WHEEL piece %s hangs from %s: joined to it (%d faces)" % (n, par, _join_into(par, n)))
+    else:
+        L("WHEEL piece %s hangs from %s, which is built from another wheel: dropped" % (n, par))
+    bpy.data.objects.remove(P.pop(n), do_unlink=True)
 _extra = sorted(b_ for b_ in BONES if re.match(r"^wheel_[lr]m\d", b_))
 if _extra:
     WCHECK_WARN.append("middle wheels %s are not built: only four-wheel cars are supported" % _extra)

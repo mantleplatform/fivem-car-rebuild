@@ -7,6 +7,7 @@ It does this on its own:
 - Imports the car with Sollumz and drops collision, damage, low-detail and prop meshes.
 - Sorts every source material into one of about 16 jobs Mantle understands (body paint, second paint, glass, tire, rim, chrome, interior, lamp lenses, and so on), and gives each job the car's own picture.
 - Finds the doors, hood, trunk and side mirrors by their position, and builds the four wheels (front and rear can differ) with the brake calipers on their own hubs.
+- Makes a piece that hangs from a wheel in the source part of that wheel (some cars carry their real rim this way, on top of a plain wheel), so it spins.
 - Keeps what hangs from a door, hood or trunk in the source on it (a hatchback's rear glass, spoiler and the inner half of split tail lights move with the trunk), when the piece really sits on it.
 - Puts back side pieces the import places on the wrong side, and drops loose junk: pieces far outside the car and the small flat logos some cars project onto the ground.
 - Removes faces nobody can see and thins the heaviest pieces until the car fits Mantle's triangle budget.
