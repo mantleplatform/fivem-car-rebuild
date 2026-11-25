@@ -1,0 +1,57 @@
+{
+ "_note": "2022jeep (SUV, carpack2). Colours matched to the source: roof lights gray, hood decal white, engine gray, roof cross bars black. Side steps are black bedliner-style plastic (Joshua's choice; the source shows pink for a material called h2v_all_terrain_blue whose picture is missing).",
+ "extra_materials": {
+  "housing_gray": [
+   0.55,
+   0.55,
+   0.56
+  ],
+  "decal_white": [
+   0.85,
+   0.85,
+   0.85
+  ],
+  "engine_gray": [
+   0.38,
+   0.38,
+   0.4
+  ]
+ },
+ "material_jobs": [
+  [
+   "^light2$",
+   "housing_gray"
+  ],
+  [
+   "livery",
+   "decal_white"
+  ],
+  [
+   "h2v_all_terrain_blue",
+   "plastic_black"
+  ],
+  [
+   "\\[PRIMARY\\]\\.004",
+   "plastic_black"
+  ]
+ ],
+ "part_material_jobs": {
+  "enginebay": [
+   [
+    ".",
+    "engine_gray"
+   ]
+  ]
+ },
+ "secondary_paint": {
+  "color": [
+   0.03,
+   0.03,
+   0.035
+  ],
+  "finish": "gloss"
+ },
+ "_secondary_paint_why": "GTA carvariations.meta: the second colour is 1 (graphite black) in every variation.",
+ "hidden_faces": "careful",
+ "_hidden_faces_why": "2026-11-23: the standard hidden-face removal passes on the Jeep but leaves too little room in the hole check for the thinning steps; the careful version (fewer faces removed, as in the approved v3) leaves room."
+}
