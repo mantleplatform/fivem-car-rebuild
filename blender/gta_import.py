@@ -253,9 +253,8 @@ for o in keep:
         o.name = bn
         o.data.name = bn
 
-# A piece on a turned side bone can also come out on the far side of its bone, well outside the car: the Goku Mustang's right sill trim
-# cua2 sat 1.7 m out to the left, an exact copy of the left one (cua1). Mirrored across its bone it lands where it belongs, the mirror
-# of its twin, and it rides what its bone hangs from (MIRROR_FIXED, used when the parts are grouped). Done only when the piece is clearly
+# A piece on a turned side bone can also come out on the far side of its bone, well outside the car: one car's right sill trim sat
+# 1.7 m out to the left, an exact copy of the left one. Mirrored across its bone it lands where it belongs, the mirror of its twin, and it rides what its bone hangs from (MIRROR_FIXED, used when the parts are grouped). Done only when the piece is clearly
 # outside the car and the mirror brings it inside. Measured after every part is placed, so the car's width is the real one.
 import numpy as _np
 _xw = {}
