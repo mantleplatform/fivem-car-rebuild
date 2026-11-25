@@ -14,6 +14,7 @@ DEFAULTS = {
     "material_jobs": [],          # [[regex, job], ...] source material name (without .001) -> job; first match wins, before the built-in table
     "part_material_jobs": {},     # {"headlight": [[regex, job], ...]} the same, only for parts whose name starts with the key
     "pictures": {},               # {"interior": "leather_01"} picture to use for a job (default: biggest readable source material)
+    "tint": {},                   # {"interior": [0.08, 0.08, 0.08]} colour a job's picture is multiplied by (GTA tints [INTERIOR TRIM] leather with the car's trim colour)
     "inner_material_regex": "",   # source material names that mark inner (unpolished) paint faces; empty = decide by face direction
     "extra_materials": {},        # {"decal_white": [0.85, 0.85, 0.85]} extra flat materials that material_jobs can point at
     "protect_from_thinning": [],  # source parts the triangle-budget thinning must leave whole (a bumper that tears when thinned)

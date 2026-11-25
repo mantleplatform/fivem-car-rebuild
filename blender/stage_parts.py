@@ -371,8 +371,15 @@ for k in PICJOBS:
     im = DDS[pn + ".dds"]
     nt = M[k].node_tree; pb = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
     tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = im; tex.label = "diffuse"
+    if k in S["tint"]:     # picture x colour, baked into a copy of the picture (Mantle reads the picture, not a glTF colour factor)
+        import numpy as _np
+        _timg = im.copy(); _timg.name = "%s_tinted" % k      # (not _t: the stage runner keeps its clock in _t)
+        _px = _np.empty(_timg.size[0] * _timg.size[1] * 4, dtype=_np.float32); _timg.pixels.foreach_get(_px); _px = _px.reshape(-1, 4)
+        _px[:, :3] *= _np.array(S["tint"][k][:3], dtype=_np.float32)
+        _timg.pixels.foreach_set(_px.ravel()); _timg.pack()
+        tex.image = _timg
     nt.links.new(tex.outputs["Color"], pb.inputs["Base Color"])
-    L("picture %s <- %s (%dx%d)" % (k, im.name, im.size[0], im.size[1]))
+    L("picture %s <- %s (%dx%d)%s" % (k, im.name, im.size[0], im.size[1], " tinted %s" % S["tint"][k] if k in S["tint"] else ""))
 UNREAD = sorted({diffuse_name(m_) for m_ in SRCMAT.values() if m_ and diffuse_name(m_) and (diffuse_name(m_) + ".dds") not in DDS and re.search(r"[a-z]", diffuse_name(m_)) and not re.search(r"^(black|blank|white|grey|spec|normal|vehicle_generic|blick)", diffuse_name(m_))})
 L("pictures not readable (no image in the car's files): %s" % UNREAD)
 

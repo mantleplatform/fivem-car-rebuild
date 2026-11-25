@@ -121,6 +121,7 @@ Material and part names are the ones in the log (`job ... <-` lines list which s
 | `material_jobs` | `[]` | `[["regex", "job"], ...]`: send source materials to a job. First match wins, before the built-in rules. |
 | `part_material_jobs` | `{}` | `{"headlight": [["regex", "job"], ...]}`: the same, only for parts whose name starts with the key. |
 | `pictures` | `{}` | `{"interior": "leather_01"}`: which source picture a job uses. By default, the picture of the job's biggest readable source material. |
+| `tint` | `{}` | `{"interior": [0.08, 0.08, 0.08]}`: multiply a job's picture by a color (GTA tints `[INTERIOR TRIM]` leather with the car's trim color; this sets it, e.g. black leather). |
 | `inner_material_regex` | `""` | Source materials that mark inner (unpainted) paint faces. Empty: decided by which way each face points. |
 | `extra_materials` | `{}` | `{"decal_white": [0.85, 0.85, 0.85]}`: extra flat-color jobs that `material_jobs` can point at. Don't use words Mantle reads in the name (light, lamp, lens, glass, tire, rim, chrome, roof). |
 | `protect_from_thinning` | `[]` | Parts the thinning step must leave whole (a bumper that tears when thinned). |
