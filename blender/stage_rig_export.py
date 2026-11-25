@@ -92,6 +92,7 @@ L("WHEEL check: %s" % WCHECK_TEXT)
 L("STATUS %s. Steps: %s" % (_status, "; ".join(STATUS["steps"]) or "none"))
 _paint = {"secondary": S.get("secondary_paint"), "secondary_sections": [m.name for m in me.materials if m.name.startswith("SECONDARY")],
           "steering_wheel_bone": "steering_wheel" if "steering_wheel" in names else None}
+_paint.update(LIVERY_PAINT)
 json.dump(_paint, open(OUT + name + "_paint.json", "w"), indent=1)
 L("paint defaults for the upload step: %s" % _paint)
 json.dump({"status": _status, "paint_defaults": _paint, "triangles": len(me.loop_triangles), "check": _final["text"] + ". " + WCHECK_TEXT, "where": _where, "warnings": list(WCHECK_WARN), "steps": STATUS["steps"], "materials": [m.name for m in me.materials]},

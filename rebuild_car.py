@@ -170,8 +170,9 @@ def main():
                 if not os.path.isfile(g):
                     print("WARNING: no GLB for the %s pictures at %s" % (tag, g))
                     continue
-                for sets in ("plain,shade,open,lights,rail", "grid"):
-                    r = blender(rs, [g, os.path.join(pics, tag), sets])
+                liv = os.path.join(os.path.dirname(g), name + "_livery.png")
+                for sets in ("plain,shade,open,lights,rail", "grid") + (("livery",) if os.path.isfile(liv) else ()):
+                    r = blender(rs, [g, os.path.join(pics, tag), sets] + ([liv] if sets == "livery" else []))
                     if r.returncode != 0 or "Traceback" in r.stderr:
                         print("WARNING: pictures (%s, %s) failed:\n    %s" % (tag, sets, "\n    ".join((r.stdout + r.stderr).strip().splitlines()[-8:])))
         print("\nRESULT: %s" % status.upper())

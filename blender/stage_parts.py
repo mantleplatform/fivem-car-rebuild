@@ -66,16 +66,29 @@ def diffuse_name(m):
     return n.image.name.lower().replace(".dds", "") if n is not None else None
 
 def base(mn): return re.sub(r"\.\d{3}$", "", mn)
-# A printed livery: paint (PRIMARY / SECONDARY in the source) whose own picture is in the car's files is a picture printed on the body, not a
-# colour players choose. It keeps its picture (and its own UVs) as a "print" material instead of becoming plain paint: Mantle would make a
-# paint section's picture a grey tint mask. Each printed picture gets its own material (print, print_2 ...), at most 2048 px (Mantle's cap).
+# A printed livery: paint whose own picture is in the car's files is a picture printed on the body, not a colour players choose.
+# - Body paint (PRIMARY): the faces stay plain paint and the picture becomes a real Mantle livery: stage_paint_uv copies it onto the new paint
+#   layout as <name>_livery.png (see-through where the paint has no picture), to be added in the vehicle builder's Liveries step.
+# - Anything else (second paint), where paint and livery can't be told apart in one layer: a "print" material that keeps its picture and its
+#   own UVs (Mantle would make a paint section's picture a grey tint mask). Each picture gets its own (print, print_2 ...), at most 2048 px.
 PRINTS = {}
 PRINT_MIN = 512
-def print_job(mn):
+LIVERY_SRC = {}       # source material -> its picture, for the livery
+LIVERY_PAINT = {}     # written to <name>_paint.json by stage_rig_export
+def print_picture(mn):
     d = diffuse_name(bpy.data.materials.get(mn))
-    if not d or (d + ".dds") not in DDS or re.match(r"vehicle_generic|blank|black|white|grey", d): return None
+    if not d or (d + ".dds") not in DDS or re.match(r"vehicle_generic|blank|black|white|grey", d): return None, None
     im = DDS[d + ".dds"]
-    if max(im.size) < PRINT_MIN: return None
+    return (d, im) if max(im.size) >= PRINT_MIN else (None, None)
+def livery_job(mn):
+    d, im = print_picture(mn)
+    if d is None: return None
+    if mn not in LIVERY_SRC: L("livery <- %s picture %s (%dx%d): body paint with a printed picture; the faces stay paint" % (mn, im.name, im.size[0], im.size[1]))
+    LIVERY_SRC[mn] = im
+    return "PRIMARY"
+def print_job(mn):
+    d, im = print_picture(mn)
+    if d is None: return None
     if d not in PRINTS:
         key = "print" if not PRINTS else "print_%d" % (len(PRINTS) + 1)
         M[key] = mk(key, (0.8, 0.8, 0.8), rough=0.3)
@@ -206,8 +219,8 @@ def job_of(mn, part):
     if part in MIRRORS:
         return rx_first(MIRRORRULES, b) or "plastic_black"
     j = rx_first(GENERIC, b) or "plastic_black"
-    if j in ("PRIMARY", "SECONDARY"):     # a settings rule can still send a print to plain paint (material_jobs comes first)
-        j = print_job(mn) or j
+    if j == "PRIMARY": livery_job(mn)      # a settings rule (material_jobs comes first) can still keep a picture off the livery
+    elif j == "SECONDARY": j = print_job(mn) or j
     return j
 
 INNER_RX = S["inner_material_regex"]

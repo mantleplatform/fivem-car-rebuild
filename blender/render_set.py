@@ -47,6 +47,24 @@ def standard(tag, dist=1.75):
 sc.display.shading.light = "STUDIO"; sc.display.shading.color_type = "TEXTURE"
 if "plain" in sets:
     standard("plain")
+if "livery" in sets and len(a) > 3:     # the car wearing its livery (a[3], made for UV 0) over its starting paint colour
+    import numpy as np
+    liv = bpy.data.images.load(a[3]); W_, H_ = liv.size
+    px = np.empty(W_ * H_ * 4, np.float32); liv.pixels.foreach_get(px); px = px.reshape(H_, W_, 4)
+    for m in bpy.data.materials:
+        if "PRIMARY" not in m.name: continue
+        nt = m.node_tree; pb = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+        lin = list(pb.inputs["Base Color"].default_value)[:3]
+        paint = np.array([(c * 12.92 if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055) for c in lin], np.float32)
+        al = px[:, :, 3:4]
+        comp = np.concatenate([px[:, :, :3] * al + paint * (1 - al), np.ones_like(al)], axis=2)
+        img = bpy.data.images.new("livery_on_paint", W_, H_); img.pixels.foreach_set(comp.ravel())
+        tex = nt.nodes.new("ShaderNodeTexImage"); tex.image = img
+        for l in list(pb.inputs["Base Color"].links): nt.links.remove(l)
+        nt.links.new(tex.outputs["Color"], pb.inputs["Base Color"]); nt.nodes.active = tex
+        m.diffuse_color = (*lin, 1)
+    sc.display.shading.color_type = "TEXTURE"
+    standard("livery")
 if "grid" in sets:
     img = bpy.data.images.new("grid", 2048, 2048); img.generated_type = "COLOR_GRID"
     for m in bpy.data.materials:

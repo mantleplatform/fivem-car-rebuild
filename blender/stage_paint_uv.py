@@ -22,6 +22,11 @@ car.name = "car"; car.data.name = "car"
 car["part_names"] = json.dumps(names)
 car["src_names"] = json.dumps(SRCLIST)
 me = car.data
+if LIVERY_SRC:     # the source UVs, kept for copying the livery picture onto the new paint layout (step 4b)
+    _ls = me.uv_layers.new(name="livery_src"); _n = len(me.loops) * 2
+    import array as _arr
+    _b = _arr.array("f", [0.0]) * _n; me.uv_layers["UVMap"].data.foreach_get("uv", _b); _ls.data.foreach_set("uv", _b)
+    me.uv_layers.active = me.uv_layers["UVMap"]
 mats = {m.name: i for i, m in enumerate(me.materials)}
 for _need in ("PRIMARY", "plastic_black"):   # a car whose paint is all printed livery has no PRIMARY faces; the steps below still need the slot
     if _need not in mats:
@@ -217,6 +222,82 @@ bm.to_mesh(me); bm.free()
 bpy.ops.object.mode_set(mode="EDIT")
 bpy.ops.uv.pack_islands(rotate=False, margin=0.003, margin_method="SCALED")
 bpy.ops.object.mode_set(mode="OBJECT")
+
+# ---- 4b. the livery: each body-paint face whose source material had a printed picture (LIVERY_SRC, from stage_parts) copies that picture,
+# read at its source UVs, onto the new paint layout. The result is <name>_livery.png, 2048 px, see-through where the paint has no picture,
+# for the vehicle builder's Liveries step. The body itself stays plain paint, starting in the picture's main colour.
+if LIVERY_SRC:
+    import numpy as np
+    SZ = 2048
+    me.calc_loop_triangles()
+    nl = len(me.loops)
+    uv_new = np.empty(nl * 2, np.float32); me.uv_layers["UVMap"].data.foreach_get("uv", uv_new); uv_new = uv_new.reshape(-1, 2)
+    uv_src = np.empty(nl * 2, np.float32); me.uv_layers["livery_src"].data.foreach_get("uv", uv_src); uv_src = uv_src.reshape(-1, 2)
+    nt_ = len(me.loop_triangles)
+    tl = np.empty(nt_ * 3, np.int32); me.loop_triangles.foreach_get("loops", tl); tl = tl.reshape(-1, 3)
+    tp = np.empty(nt_, np.int32); me.loop_triangles.foreach_get("polygon_index", tp)
+    pmat = np.empty(len(me.polygons), np.int32); me.polygons.foreach_get("material_index", pmat)
+    psrc = np.empty(len(me.polygons), np.int32); me.attributes["srcmat"].data.foreach_get("value", psrc)
+    pics = {}
+    for mn_, im_ in LIVERY_SRC.items():
+        if im_.name not in pics:
+            a_ = np.empty(im_.size[0] * im_.size[1] * 4, np.float32); im_.pixels.foreach_get(a_)
+            pics[im_.name] = a_.reshape(im_.size[1], im_.size[0], 4)
+    src_pic = {SRCLIST.index(mn_): pics[im_.name] for mn_, im_ in LIVERY_SRC.items() if mn_ in SRCLIST}
+    out_img = np.zeros((SZ, SZ, 4), np.float32)
+    done = 0
+    for t in range(nt_):
+        p_ = tp[t]
+        if pmat[p_] != pm or psrc[p_] not in src_pic: continue
+        pic = src_pic[psrc[p_]]; H, Wd = pic.shape[:2]
+        q = uv_new[tl[t]] * SZ - 0.5; s = uv_src[tl[t]]
+        x0, y0 = np.floor(q.min(0)).astype(int); x1, y1 = np.ceil(q.max(0)).astype(int)
+        x0, y0 = max(x0, 0), max(y0, 0); x1, y1 = min(x1, SZ - 1), min(y1, SZ - 1)
+        if x1 < x0 or y1 < y0: continue
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1), np.arange(y0, y1 + 1))
+        d_ = (q[1, 1] - q[2, 1]) * (q[0, 0] - q[2, 0]) + (q[2, 0] - q[1, 0]) * (q[0, 1] - q[2, 1])
+        if abs(d_) < 1e-12: continue
+        w0 = ((q[1, 1] - q[2, 1]) * (xs - q[2, 0]) + (q[2, 0] - q[1, 0]) * (ys - q[2, 1])) / d_
+        w1 = ((q[2, 1] - q[0, 1]) * (xs - q[2, 0]) + (q[0, 0] - q[2, 0]) * (ys - q[2, 1])) / d_
+        w2 = 1 - w0 - w1
+        ins = (w0 >= -1e-3) & (w1 >= -1e-3) & (w2 >= -1e-3)
+        if not ins.any(): continue
+        su = (w0 * s[0, 0] + w1 * s[1, 0] + w2 * s[2, 0])[ins] % 1.0
+        sv = (w0 * s[0, 1] + w1 * s[1, 1] + w2 * s[2, 1])[ins] % 1.0
+        fx = su * Wd - 0.5; fy = sv * H - 0.5
+        ix = np.floor(fx).astype(int); iy = np.floor(fy).astype(int); ax = (fx - ix)[:, None]; ay = (fy - iy)[:, None]
+        ix0 = ix % Wd; ix1 = (ix + 1) % Wd; iy0 = iy % H; iy1 = (iy + 1) % H
+        col = (pic[iy0, ix0] * (1 - ax) * (1 - ay) + pic[iy0, ix1] * ax * (1 - ay) + pic[iy1, ix0] * (1 - ax) * ay + pic[iy1, ix1] * ax * ay)
+        out_img[ys[ins], xs[ins]] = col
+        done += 1
+    # grow the picture a few pixels past the pieces' edges, so filtering at a seam doesn't pull in the see-through border
+    for _ in range(6):
+        empty = out_img[:, :, 3] <= 0
+        acc = np.zeros_like(out_img); cnt = np.zeros((SZ, SZ, 1), np.float32)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            sh = np.roll(out_img, (dy, dx), axis=(0, 1)); ok = (sh[:, :, 3] > 0)[:, :, None]
+            acc += sh * ok; cnt += ok
+        grow = empty & (cnt[:, :, 0] > 0)
+        out_img[grow] = acc[grow] / cnt[grow]
+    covered = out_img[:, :, 3] > 0
+    # the starting paint colour: the picture's most common colour (16 levels per channel), as linear RGB
+    px_ = out_img[covered][:, :3]
+    q16 = np.clip((px_ * 15.999).astype(int), 0, 15)
+    keys = q16[:, 0] * 256 + q16[:, 1] * 16 + q16[:, 2]
+    top = np.bincount(keys).argmax()
+    srgb = px_[keys == top].mean(0)
+    lin = [float(((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92) for c in srgb]
+    pbp = next(n for n in M["PRIMARY"].node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    pbp.inputs["Base Color"].default_value = (*lin, 1.0); M["PRIMARY"].diffuse_color = (*lin, 1.0)
+    img = bpy.data.images.new(name + "_livery", SZ, SZ, alpha=True)
+    img.pixels.foreach_set(out_img.ravel())
+    lpath = os.path.join(out, name + "_livery.png")
+    img.filepath_raw = lpath; img.file_format = "PNG"; img.save()
+    LIVERY_PAINT.update({"livery": os.path.basename(lpath), "primary": {"color": [round(c, 4) for c in lin], "finish": "gloss"}})
+    L("livery: %d triangles copied from %s onto the paint layout, %.1f%% of the sheet covered, starting paint colour %s (sRGB %s); %s" % (
+        done, sorted({im_.name for im_ in LIVERY_SRC.values()}), 100.0 * covered.mean(), [round(c, 3) for c in lin], [round(float(c), 3) for c in srgb], lpath))
+if "livery_src" in me.uv_layers: me.uv_layers.remove(me.uv_layers["livery_src"])
+
 
 # ---- 5. report
 bm = bmesh.new(); bm.from_mesh(me); bm.faces.ensure_lookup_table()
