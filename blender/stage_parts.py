@@ -195,6 +195,8 @@ for n, o in P.items():       # a piece that sits on an opener's bone origin belo
     if n in OPENERS or SKIPJOIN.match(n) or n in S["no_auto_join"] or n not in BONES: continue
     for op in OPENERS:
         if op in BONES and (BONES[n] - BONES[op]).length < 0.01: JOIN[n] = op; break
+for n, pb_ in MIRROR_FIXED.items():     # a piece put back by mirroring (gta_import) rides the opener its bone hangs from
+    if n in P and pb_ in OPENERS and n not in S["no_auto_join"]: JOIN[n] = pb_
 MIRRORS = set()
 for n, o in P.items():       # a small piece beside a front door, out at its outer edge, is that door's mirror
     if n in OPENERS or n in JOIN or SKIPJOIN.match(n) or n in S["no_auto_join"]: continue
@@ -206,7 +208,8 @@ for n, o in P.items():       # a small piece beside a front door, out at its out
         if not dn.endswith("_f"): continue
         side = -1 if "dside" in dn else 1
         outer = max(abs(lo_[0]), abs(hi_[0]))
-        if c.x * side > 0 and abs(c.x) >= outer - 0.08 and lo_[1] - 0.15 <= c.y <= hi_[1] + 0.15:
+        # out at the door's outer edge, but no farther than a mirror reaches (a piece far beyond it is a stray, not a mirror)
+        if c.x * side > 0 and outer - 0.08 <= abs(c.x) <= outer + 0.45 and lo_[1] - 0.15 <= c.y <= hi_[1] + 0.15:
             JOIN[n] = dn; MIRRORS.add(n); break
 for a, b in S["join"].items():
     if a in P and b in P: JOIN[a] = b
