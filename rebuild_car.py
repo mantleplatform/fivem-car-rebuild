@@ -116,7 +116,11 @@ def main():
     out_root = os.path.abspath(a.out or cfg.get("output") or os.path.join(os.getcwd(), "output"))
     out = os.path.join(out_root, name)
     pics = os.path.join(out, "pictures")
-    if os.path.commonpath([out, folder]) == folder:
+    try:
+        inside = os.path.commonpath([out, folder]) == folder
+    except ValueError:      # different drives
+        inside = False
+    if inside:
         die("the output folder must not be inside the car folder (%s)" % folder)
     os.makedirs(pics, exist_ok=True)
     print("car      %s (%s)" % (name, folder))
