@@ -59,7 +59,7 @@ Everything goes into `output\<name>\`:
 |---|---|
 | `<name>_skinned.glb` | The rebuilt car. This is the file you import into Unreal. |
 | `<name>_check.json` | The result, the check numbers, the steps that ran, warnings and materials. |
-| `<name>_paint.json` | Values for the upload step: the starting second paint color, the steering wheel bone name, and for a car with a livery, the livery file and the body's starting color. |
+| `<name>_paint.json` | Values for the upload step: the starting second paint color, and for a car with a livery, the livery file and the body's starting color. |
 | `<name>_livery.png` | Only for a car whose paint carries a printed picture: its livery, made for the rebuilt car's paint layout. Add it in the vehicle builder's Liveries step. |
 | `<name>_rebuild_log.txt` | Everything the script decided, step by step. Read this when something looks wrong. |
 | `<name>_blender_stdout.txt` | Blender's own output, for errors. |
@@ -158,4 +158,4 @@ A good order for a new car: run it with no settings, read the log, look at the p
 
 The rebuilt GLB goes into Unreal Engine with the Mantle Core plugin, which turns it into a Mantle vehicle and uploads it. See [Bringing in a FiveM car](https://mantleplatform.com/docs/creators/vehicles/#fivem) in the Mantle docs for the steps.
 
-Use `<name>_paint.json` there: `secondary` is the second paint color's starting finish or color (the material is named `SECONDARY`), and `steering_wheel_bone` is the bone to enter under **Show its settings > Driver > Steering Wheel Bone** so the steering wheel turns.
+Use `<name>_paint.json` there: `secondary` is the second paint color's starting finish or color (the material is named `SECONDARY`). The steering wheel needs nothing from you: the vehicle builder finds its `steering_wheel` bone and makes it turn.
