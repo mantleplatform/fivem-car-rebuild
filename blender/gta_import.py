@@ -291,3 +291,34 @@ if _yw:
               % (o.name, _xw[o.name].min(), _xw[o.name].max(), _yw[o.name].min(), _yw[o.name].max(), 2 * HALF_W, _ylo, _yhi))
             keep.remove(o)
 
+# Small flat pieces lying just above the ground (door puddle-light logos the source projects onto the road) are not part of the car:
+# in the game they float under it. A loose, flat island of at most 4 faces in a non-wheel part, within 5 cm of the tires' lowest point
+# and under 60 cm across, is deleted. (Bigger low pieces, such as underglow strips, are left alone.)
+_wz = [(_np.array([v.co.z for v in o.data.vertices]) + o.location.z).min() for o in keep
+       if o.type == "MESH" and o.name.startswith("wheel_") and o.data.vertices]
+if _wz:
+    _ground = float(min(_wz))
+    for o in keep:
+        if o.type != "MESH" or o.name.startswith("wheel_") or not o.data.polygons: continue
+        _bmg = bmesh.new(); _bmg.from_mesh(o.data); _bmg.faces.ensure_lookup_table()
+        _seen, _gone = set(), []
+        for _f in _bmg.faces:
+            if _f.index in _seen: continue
+            _st, _isl = [_f], []; _seen.add(_f.index)
+            while _st:
+                _g = _st.pop(); _isl.append(_g)
+                for _e in _g.edges:
+                    for _h in _e.link_faces:
+                        if _h.index not in _seen: _seen.add(_h.index); _st.append(_h)
+            _ps = [v.co + o.location for g in _isl for v in g.verts]
+            _zs = [p.z for p in _ps]
+            if (len(_isl) <= 4 and max(_zs) - min(_zs) < 0.01 and max(_zs) - _ground < 0.05
+                    and max(max(p.x for p in _ps) - min(p.x for p in _ps), max(p.y for p in _ps) - min(p.y for p in _ps)) < 0.6):
+                _gone += _isl
+                L("DROP ground piece of %s: %d faces at %.0f cm above the ground, x %.2f y %.2f" % (o.name, len(_isl), (max(p.z for p in _ps) - _ground) * 100, _ps[0].x, _ps[0].y))
+        if _gone:
+            bmesh.ops.delete(_bmg, geom=list({f for f in _gone}), context="FACES_ONLY")
+            bmesh.ops.delete(_bmg, geom=[v for v in _bmg.verts if not v.link_faces], context="VERTS")
+            _bmg.to_mesh(o.data)
+        _bmg.free()
+

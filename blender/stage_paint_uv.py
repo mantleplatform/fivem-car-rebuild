@@ -128,6 +128,7 @@ def measure(bm, cs, uvl):
         wa = f.calc_area(); us = [l[uvl].uv for l in f.loops]; ua = 0.0
         for k in range(1, len(us) - 1): ua += abs((us[k] - us[0]).cross(us[k + 1] - us[0])) / 2
         if wa > 1e-9: dens.append((ua / wa, wa)); tw += wa
+    if not dens: return 1.0, 1.0, 1.0   # a blob of zero-area faces only: nothing to measure, treat as unstretched
     dens.sort(); cum = 0; ds = []
     for d, w in dens: cum += w; ds.append((cum / tw, d))
     q = lambda p: next((d for c, d in ds if c >= p), ds[-1][1])
