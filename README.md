@@ -148,7 +148,8 @@ A good order for a new car: run it with no settings, read the log, look at the p
 - Textures Sollumz can't read stay flat color. Decals, and materials whose picture is missing, become black plastic unless a setting says otherwise.
 - A livery printed on the body paint (a paint material with its own picture in the car's files, at least 512 px) becomes a real Mantle livery: the body stays plain paint, and the picture is copied onto the rebuilt paint layout as `<name>_livery.png` (2048 px, see-through where the paint has no picture). Players can switch it off and recolor the paint under it. To keep a picture off the livery, send its material to `PRIMARY` with `material_jobs`.
 - Where paint and livery can't be told apart (a picture on the second paint color), the picture stays on the car itself in materials named `print`, `print_2` and so on, at most 2048 px. Players can't recolor those parts.
-- Some cars put their livery on GTA's lamp shader, so the body glows when the headlights are on. That glow does not carry over yet; the livery does.
+- Some cars put their livery on GTA's lamp shader, so the body glows when the headlights are on. The script notes which light in `<name>_paint.json` as `livery_glow` (`head`, `rear` and so on). In the vehicle builder's Liveries step, set that livery's **Livery Glows** light to it, and the livery lights up with that light in Mantle.
+- Pictures GTA draws on the lamp shader (not the livery) glow too: they stay on the car in materials named `print_glow_<light>`, `print_2_glow_<light>` and so on, which glow with that light.
 - Paint layout uses 30 to 45% of the livery sheet; window frames and fender shapes leave gaps. The layout can come out packed a little differently from one run to the next.
 - Thinning can tear thin parts, so thin bars and brackets are never thinned. Use `protect_from_thinning` for anything else that tears.
 - The check does not see color or very small spikes. Always look at the pictures.
