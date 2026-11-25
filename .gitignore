@@ -1,0 +1,13 @@
+# your own machine's settings and results
+config.json
+output/
+__pycache__/
+*.pyc
+# never commit car files or rebuilt cars
+*.yft
+*.ytd
+*.ydr
+*.glb
+*.blend
+*.blend1
+*.png

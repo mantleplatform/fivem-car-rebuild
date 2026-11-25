@@ -46,9 +46,9 @@ heads = {}
 for pn in names:
     if pn == "body": continue
     if pn.startswith("wheel_"):
-        c = bbc(pn); c.z = WHEEL_R; head = c
+        c = bbc(pn); c.z = WHEEL_RS.get(pn, WHEEL_R); head = c
     elif pn.startswith("hub_") and ("wheel_" + pn[4:]) in cen:    # the caliper's hub sits at its wheel's centre (it follows the wheel's travel and steering, not its spin)
-        c = bbc("wheel_" + pn[4:]); c.z = WHEEL_R; head = c
+        c = bbc("wheel_" + pn[4:]); c.z = WHEEL_RS.get("wheel_" + pn[4:], WHEEL_R); head = c
     else:
         head = gta(pn)
     heads[pn] = head

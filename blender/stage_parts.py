@@ -52,6 +52,9 @@ M = {
 }
 for _k, _v in S["extra_materials"].items():   # flat materials a car needs besides the standard jobs (name, [r, g, b]); the name must not hold a word Mantle reads (light, lamp, lens, glass, tire, rim, chrome, roof ...)
     M[_k] = mk(_k, tuple(_v[:3]), rough=0.6)
+_badjobs = sorted(({j_ for _rx, j_ in S["material_jobs"]} | {j_ for _r in S["part_material_jobs"].values() for _rx, j_ in _r} | set(S["pictures"])) - set(M))
+if _badjobs:
+    fail("settings name jobs that do not exist: %s. Jobs: %s (or a name from extra_materials)" % (_badjobs, ", ".join(M)))
 # The tail and indicator lenses keep a flat red / amber base colour and no picture: a picture replaces the base colour (the GLB then says white),
 # and Mantle keeps a lens's own colour only when its base colour is red to amber (otherwise it becomes the shared clear lens).
 PICJOBS = ("interior", "carbon", "badge", "grille", "reflector", "head_lens", "reverse_lens")
@@ -71,9 +74,34 @@ LAMP_BODY = re.compile(r"^light[a-z]?$|light_?set|reflect|chrome|bowl|bulb", re.
 LIGHT_PARTS = (("headlight", "head_lens"), ("extralight", "head_lens"), ("taillight", "tail_lens"), ("brakelight", "tail_lens"), ("reversinglight", "reverse_lens"), ("indicator", "indicator_lens"))
 
 # ---- 3. which source parts are dropped / opened / mirrors
-DROP = re.compile(r"^(suspension_|hub_|wheel_(?!lf$))")
+# The wheels. GTA draws wheel_lf at every corner unless the model has its own rear wheel (wheel_lr / wheel_rr), and draws each hub (brake)
+# where the model has one. Front wheel: wheel_lf, else wheel_rf. Rear wheel: wheel_lr, else wheel_rr, else the front one. The same for the hubs.
+# A right-hand source is mirrored to the left first, so every wheel below is built from a left-hand wheel.
+WCHECK_WARN = []
+def _first(*names): return next((n_ for n_ in names if n_ in P), None)
+FRONT_W = _first("wheel_lf", "wheel_rf"); REAR_W = _first("wheel_lr", "wheel_rr")
+FRONT_H = _first("hub_lf", "hub_rf"); REAR_H = _first("hub_lr", "hub_rr")
+if FRONT_W is None:
+    fail("no front wheel mesh: the model has no part named wheel_lf or wheel_rf")
+if REAR_W is None and not any(b_ in BONES for b_ in ("wheel_lr", "wheel_rr")):
+    fail("no rear wheel bones: the model has no wheel_lr or wheel_rr bone, so the rear wheels have nowhere to go")
+WHEEL_SRC = {n_ for n_ in (FRONT_W, REAR_W, FRONT_H, REAR_H) if n_}
+_extra = sorted(b_ for b_ in BONES if re.match(r"^wheel_[lr]m\d", b_))
+if _extra:
+    WCHECK_WARN.append("middle wheels %s are not built: only four-wheel cars are supported" % _extra)
+def _left_bone(axle_):   # the axle's left wheel bone, or its right one mirrored
+    if "wheel_l" + axle_ in BONES: return BONES["wheel_l" + axle_]
+    if "wheel_r" + axle_ in BONES: p_ = BONES["wheel_r" + axle_]; return Vector((-p_.x, p_.y, p_.z))
+    return None
+for n in sorted(WHEEL_SRC):
+    if n[-2] == "r":     # wheel_rf, hub_rr ...: mirror across the car's middle, faces turned back out
+        P[n].data.transform(Matrix.Scale(-1, 4, (1, 0, 0)))
+        _bm = bmesh.new(); _bm.from_mesh(P[n].data); bmesh.ops.reverse_faces(_bm, faces=_bm.faces[:]); _bm.to_mesh(P[n].data); _bm.free()
+        L("wheel source %s is on the right: mirrored to the left" % n)
+L("wheel sources: front %s + %s, rear %s + %s" % (FRONT_W, FRONT_H, REAR_W or "(front wheel)", REAR_H or ("(front hub)" if REAR_W is None else "none")))
+DROP = re.compile(r"^(suspension_|hub_|wheel_)")
 for n in list(P):
-    if DROP.match(n) and n != "hub_lf" or n in S["drop_parts"]:
+    if DROP.match(n) and n not in WHEEL_SRC or n in S["drop_parts"]:
         if n in P: bpy.data.objects.remove(P.pop(n), do_unlink=True)
 OPENERS = [n for n in P if re.match(r"^(door_[dp]side_[fr]|bonnet|boot)$", n)]
 doorbox = {}
@@ -106,26 +134,27 @@ for a in S["mirror_parts"]: MIRRORS.add(a)
 for a, b in JOIN.items(): L("auto-join: %s -> %s%s" % (a, b, " (mirror)" if a in MIRRORS else ""))
 
 # ---- 4. wheel: tire / rim / brake by shape (the material that reaches farthest from the axle is the tire)
-wlf = P.get("wheel_lf"); hlf = P.get("hub_lf")
-if wlf is None: raise SystemExit("FIVEM_FAILED no wheel_lf mesh")
-vs = [v.co for v in wlf.data.vertices]
-wc_y = (min(v.y for v in vs) + max(v.y for v in vs)) / 2; wc_z = (min(v.z for v in vs) + max(v.z for v in vs)) / 2
-rad = collections.defaultdict(float)
-for p in wlf.data.polygons:
-    mn_ = wlf.material_slots[p.material_index].material.name
-    for vi in p.vertices:
-        v = wlf.data.vertices[vi].co; rad[mn_] = max(rad[mn_], math.hypot(v.y - wc_y, v.z - wc_z))
-WJOB = {}
-tire_name = max(rad, key=rad.get)
-if S["wheel"].get("tire"):
-    tire_name = next((m for m in rad if re.search(S["wheel"]["tire"], m, re.I)), tire_name)
-for m_ in rad:
-    b = base(m_)
-    if m_ == tire_name: WJOB[m_] = "tire"
-    elif S["wheel"].get("brake") and re.search(S["wheel"]["brake"], b, re.I) or re.search(r"brake|caliper|disc|rotor", b, re.I): WJOB[m_] = "plastic_black"
-    elif S["wheel"].get("rim") and not re.search(S["wheel"]["rim"], b, re.I): WJOB[m_] = "plastic_black"
-    else: WJOB[m_] = "rim"
-L("wheel materials: %s (radius m: %s)" % (WJOB, {k: round(v, 3) for k, v in rad.items()}))
+def wheel_jobs(wo):
+    vs = [v.co for v in wo.data.vertices]
+    wc_y = (min(v.y for v in vs) + max(v.y for v in vs)) / 2; wc_z = (min(v.z for v in vs) + max(v.z for v in vs)) / 2
+    rad = collections.defaultdict(float)
+    for p in wo.data.polygons:
+        mn_ = wo.material_slots[p.material_index].material.name
+        for vi in p.vertices:
+            v = wo.data.vertices[vi].co; rad[mn_] = max(rad[mn_], math.hypot(v.y - wc_y, v.z - wc_z))
+    WJOB = {}
+    tire_name = max(rad, key=rad.get)
+    if S["wheel"].get("tire"):
+        tire_name = next((m for m in rad if re.search(S["wheel"]["tire"], m, re.I)), tire_name)
+    for m_ in rad:
+        b = base(m_)
+        if m_ == tire_name: WJOB[m_] = "tire"
+        elif S["wheel"].get("brake") and re.search(S["wheel"]["brake"], b, re.I) or re.search(r"brake|caliper|disc|rotor", b, re.I): WJOB[m_] = "plastic_black"
+        elif S["wheel"].get("rim") and not re.search(S["wheel"]["rim"], b, re.I): WJOB[m_] = "plastic_black"
+        else: WJOB[m_] = "rim"
+    L("wheel materials %s: %s (radius m: %s)" % (wo.name, WJOB, {k: round(v, 3) for k, v in rad.items()}))
+    return WJOB
+WJOBS = {n_: wheel_jobs(P[n_]) for n_ in (FRONT_W, REAR_W) if n_}
 
 # ---- 5. material -> job
 MIRRORRULES = [(r"PRIMARY", "SECONDARY"), (r"turn|indic|signal|dials", "indicator_lens"), (r"salon|mirror|glass", "chrome")]
@@ -137,8 +166,8 @@ JOBTRIS = collections.defaultdict(collections.Counter)
 SRCMAT = {}
 def job_of(mn, part):
     b = base(mn)
-    if part == "wheel_lf": return WJOB.get(mn, "rim")
-    if part == "hub_lf": return "plastic_black"
+    if part in WJOBS: return WJOBS[part].get(mn, "rim")
+    if part in WHEEL_SRC: return "plastic_black"     # a hub
     for key, rules in S["part_material_jobs"].items():
         if part.startswith(key):
             j = rx_first(rules, b) or rx_first(rules, mn)
@@ -207,28 +236,9 @@ for k in PICJOBS:
 UNREAD = sorted({diffuse_name(m_) for m_ in SRCMAT.values() if m_ and diffuse_name(m_) and (diffuse_name(m_) + ".dds") not in DDS and re.search(r"[a-z]", diffuse_name(m_)) and not re.search(r"^(black|blank|white|grey|spec|normal|vehicle_generic|blick)", diffuse_name(m_))})
 L("pictures not readable (no image in the car's files): %s" % UNREAD)
 
-# ---- 7. wheels: one wheel (wheel_lf + its hub/brake), reduced if heavy, built into four, level and mirrored
-P.pop("wheel_lf");
-if hlf is not None: P.pop("hub_lf")
-bpy.ops.object.select_all(action="DESELECT")
-for o in (wlf, hlf):
-    if o is not None: o.select_set(True)
-bpy.context.view_layer.objects.active = wlf
-if hlf is not None: bpy.ops.object.join()
-W = wlf
-tire_idx = [i for i, s in enumerate(W.material_slots) if s.material and s.material.name == "tire"][0]
-tv = {v for p in W.data.polygons if p.material_index == tire_idx for v in p.vertices}
-tpts = [W.data.vertices[i].co for i in tv]
-c = Vector(((min(p.x for p in tpts) + max(p.x for p in tpts)) / 2, (min(p.y for p in tpts) + max(p.y for p in tpts)) / 2, (min(p.z for p in tpts) + max(p.z for p in tpts)) / 2))
-WHEEL_R = (max(p.z for p in tpts) - min(p.z for p in tpts)) / 2
-L("wheel centre in source %s radius %.4f" % (tuple(round(x, 4) for x in c), WHEEL_R))
-W.data.transform(Matrix.Translation(-c))
-
-# 7b. the brake caliper: brake pieces that are not round (a disc or a hub cap goes all the way round the axle, a caliper covers part of the circle)
-# hang on a hub that steers with the wheel but does not spin. It must sit inside the rim: no triangle of it may cross a triangle of the rim.
+# ---- 7. wheels: the front wheel (with its hub/brake) and the rear one (the model's own rear wheel and hub, or the front's), each built into
+# two corners, level and mirrored. They are reduced later (stage_hidden) if heavy.
 from mathutils.bvhtree import BVHTree
-WCHECK_WARN = []; WCHECK_TEXT = "no caliper"
-HUBDATA = None
 def _wk(v): return (round(v.co.x * 1e3), round(v.co.y * 1e3), round(v.co.z * 1e3))
 def _crossings(a_data, b_data):
     """number of triangle pairs of two meshes that intersect"""
@@ -236,62 +246,101 @@ def _crossings(a_data, b_data):
         d.calc_loop_triangles()
         return BVHTree.FromPolygons([v.co.copy() for v in d.vertices], [tuple(t.vertices) for t in d.loop_triangles])
     return len(tree(a_data).overlap(tree(b_data)))
-_bmA = bmesh.new(); _bmA.from_mesh(W.data); _bmA.faces.ensure_lookup_table()
-_names = [m.name if m else "" for m in W.data.materials]
-_brake = [f for f in _bmA.faces if _names[f.material_index] not in ("tire", "rim")]
-_vmap = collections.defaultdict(list)
-for f in _brake:
-    for v in f.verts: _vmap[_wk(v)].append(f)
-_seen = set(); _cal = set()
-for f in _brake:
-    if f.index in _seen: continue
-    _st = [f]; _seen.add(f.index); _comp = []
-    while _st:
-        g = _st.pop(); _comp.append(g)
-        for v in g.verts:
-            for h in _vmap[_wk(v)]:
-                if h.index not in _seen: _seen.add(h.index); _st.append(h)
-    _ang = sorted(math.atan2(v.co.z, v.co.y) for g in _comp for v in g.verts)    # around the axle (the source's X axis)
-    _gaps = [_ang[i + 1] - _ang[i] for i in range(len(_ang) - 1)] + [_ang[0] + 2 * math.pi - _ang[-1]]
-    if 360 - math.degrees(max(_gaps)) <= 300: _cal.update(g.index for g in _comp)
-if _cal:
-    _bmB = bmesh.new(); _bmB.from_mesh(W.data); _bmB.faces.ensure_lookup_table()
-    bmesh.ops.delete(_bmA, geom=[f for f in _bmA.faces if f.index in _cal], context="FACES")
-    bmesh.ops.delete(_bmA, geom=[v for v in _bmA.verts if not v.link_faces], context="VERTS")
-    bmesh.ops.delete(_bmB, geom=[f for f in _bmB.faces if f.index not in _cal], context="FACES")
-    bmesh.ops.delete(_bmB, geom=[v for v in _bmB.verts if not v.link_faces], context="VERTS")
-    HUBDATA = W.data.copy()
-    _bmB.to_mesh(HUBDATA); _bmB.free()
-    _bmA.to_mesh(W.data); _bmA.free()
-    # the rim (only the rim material) as its own mesh for the crossing test
-    _rim_i = [i for i, n_ in enumerate(_names) if n_ == "rim"]
-    _bmR = bmesh.new(); _bmR.from_mesh(W.data); _bmR.faces.ensure_lookup_table()
-    bmesh.ops.delete(_bmR, geom=[f for f in _bmR.faces if f.material_index not in _rim_i], context="FACES")
-    bmesh.ops.delete(_bmR, geom=[v for v in _bmR.verts if not v.link_faces], context="VERTS")
-    _rim = bpy.data.meshes.new("rimtest"); _bmR.to_mesh(_rim); _bmR.free()
-    _o = 1.0 if c.x > 0 else -1.0      # outward (away from the car) is +X for a wheel on the positive side
-    _cv = [v.co for v in HUBDATA.vertices]
-    _rmin = min(math.hypot(p.y, p.z) for p in _cv); _rmax = max(math.hypot(p.y, p.z) for p in _cv)
-    _rimR = max(math.hypot(v.co.y, v.co.z) for v in _rim.vertices)
-    _band = [v.co.x * _o for v in _rim.vertices if _rmin - 0.01 <= math.hypot(v.co.y, v.co.z) <= min(_rmax + 0.01, 0.85 * _rimR)]
-    _calmax = max(p.x * _o for p in _cv)
-    _n0 = _crossings(HUBDATA, _rim)
-    _CAP = 0.04     # a caliper is moved inboard by at most 4 cm (it hangs just behind the spokes); further than that is not the same car
-    _shift = min(_CAP, max(0.0, _calmax - (min(_band) - 0.005))) if _band else 0.0
-    if _n0 > 0:
-        HUBDATA.transform(Matrix.Translation((-_o * _shift, 0, 0)))
-        _n = _crossings(HUBDATA, _rim)
-        while _n > 0 and _shift < _CAP:
-            HUBDATA.transform(Matrix.Translation((-_o * 0.004, 0, 0))); _shift += 0.004; _n = _crossings(HUBDATA, _rim)
-        if _n > 0:      # cannot be cleared within the cap: leave it where the source has it and say so
-            HUBDATA.transform(Matrix.Translation((_o * _shift, 0, 0))); _shift = 0.0; _n = _n0
+
+def build_wheel(label, wheel_n, hub_n, hub_shift=None):
+    """One wheel from its source meshes: a copy of the wheel joined with a copy of its hub (moved by hub_shift first), centred on its tire, and
+    the brake caliper split off onto its own mesh. Returns {data: the wheel mesh centred on the axle, hub: the caliper mesh or None,
+    c: the tire centre in the source, r: the tire radius, text, warn}."""
+    W = P[wheel_n].copy(); W.data = P[wheel_n].data.copy(); bpy.context.scene.collection.objects.link(W)
+    if hub_n:
+        H = P[hub_n].copy(); H.data = P[hub_n].data.copy(); bpy.context.scene.collection.objects.link(H)
+        if hub_shift is not None: H.data.transform(Matrix.Translation(hub_shift))
+        bpy.ops.object.select_all(action="DESELECT")
+        W.select_set(True); H.select_set(True)
+        bpy.context.view_layer.objects.active = W
+        bpy.ops.object.join()
+    tire_idx = [i for i, s in enumerate(W.material_slots) if s.material and s.material.name == "tire"][0]
+    tv = {v for p in W.data.polygons if p.material_index == tire_idx for v in p.vertices}
+    tpts = [W.data.vertices[i].co for i in tv]
+    c = Vector(((min(p.x for p in tpts) + max(p.x for p in tpts)) / 2, (min(p.y for p in tpts) + max(p.y for p in tpts)) / 2, (min(p.z for p in tpts) + max(p.z for p in tpts)) / 2))
+    R = (max(p.z for p in tpts) - min(p.z for p in tpts)) / 2
+    L("%s wheel (%s + %s): centre in source %s radius %.4f" % (label, wheel_n, hub_n, tuple(round(x, 4) for x in c), R))
+    W.data.transform(Matrix.Translation(-c))
+
+    # 7b. the brake caliper: brake pieces that are not round (a disc or a hub cap goes all the way round the axle, a caliper covers part of the
+    # circle) hang on a hub that steers with the wheel but does not spin. It must sit inside the rim: no triangle of it may cross a triangle of the rim.
+    text = "no caliper"; warn = []
+    HUBDATA = None
+    _bmA = bmesh.new(); _bmA.from_mesh(W.data); _bmA.faces.ensure_lookup_table()
+    _names = [m.name if m else "" for m in W.data.materials]
+    _brake = [f for f in _bmA.faces if _names[f.material_index] not in ("tire", "rim")]
+    _vmap = collections.defaultdict(list)
+    for f in _brake:
+        for v in f.verts: _vmap[_wk(v)].append(f)
+    _seen = set(); _cal = set()
+    for f in _brake:
+        if f.index in _seen: continue
+        _st = [f]; _seen.add(f.index); _comp = []
+        while _st:
+            g = _st.pop(); _comp.append(g)
+            for v in g.verts:
+                for h in _vmap[_wk(v)]:
+                    if h.index not in _seen: _seen.add(h.index); _st.append(h)
+        _ang = sorted(math.atan2(v.co.z, v.co.y) for g in _comp for v in g.verts)    # around the axle (the source's X axis)
+        _gaps = [_ang[i + 1] - _ang[i] for i in range(len(_ang) - 1)] + [_ang[0] + 2 * math.pi - _ang[-1]]
+        if 360 - math.degrees(max(_gaps)) <= 300: _cal.update(g.index for g in _comp)
+    if _cal:
+        _bmB = bmesh.new(); _bmB.from_mesh(W.data); _bmB.faces.ensure_lookup_table()
+        bmesh.ops.delete(_bmA, geom=[f for f in _bmA.faces if f.index in _cal], context="FACES")
+        bmesh.ops.delete(_bmA, geom=[v for v in _bmA.verts if not v.link_faces], context="VERTS")
+        bmesh.ops.delete(_bmB, geom=[f for f in _bmB.faces if f.index not in _cal], context="FACES")
+        bmesh.ops.delete(_bmB, geom=[v for v in _bmB.verts if not v.link_faces], context="VERTS")
+        HUBDATA = W.data.copy()
+        _bmB.to_mesh(HUBDATA); _bmB.free()
+        _bmA.to_mesh(W.data); _bmA.free()
+        # the rim (only the rim material) as its own mesh for the crossing test
+        _rim_i = [i for i, n_ in enumerate(_names) if n_ == "rim"]
+        _bmR = bmesh.new(); _bmR.from_mesh(W.data); _bmR.faces.ensure_lookup_table()
+        bmesh.ops.delete(_bmR, geom=[f for f in _bmR.faces if f.material_index not in _rim_i], context="FACES")
+        bmesh.ops.delete(_bmR, geom=[v for v in _bmR.verts if not v.link_faces], context="VERTS")
+        _rim = bpy.data.meshes.new("rimtest"); _bmR.to_mesh(_rim); _bmR.free()
+        _o = 1.0 if c.x > 0 else -1.0      # outward (away from the car) is +X for a wheel on the positive side
+        _cv = [v.co for v in HUBDATA.vertices]
+        _rmin = min(math.hypot(p.y, p.z) for p in _cv); _rmax = max(math.hypot(p.y, p.z) for p in _cv)
+        _rimR = max(math.hypot(v.co.y, v.co.z) for v in _rim.vertices)
+        _band = [v.co.x * _o for v in _rim.vertices if _rmin - 0.01 <= math.hypot(v.co.y, v.co.z) <= min(_rmax + 0.01, 0.85 * _rimR)]
+        _calmax = max(p.x * _o for p in _cv)
+        _n0 = _crossings(HUBDATA, _rim)
+        _CAP = 0.04     # a caliper is moved inboard by at most 4 cm (it hangs just behind the spokes); further than that is not the same car
+        _shift = min(_CAP, max(0.0, _calmax - (min(_band) - 0.005))) if _band else 0.0
+        if _n0 > 0:
+            HUBDATA.transform(Matrix.Translation((-_o * _shift, 0, 0)))
+            _n = _crossings(HUBDATA, _rim)
+            while _n > 0 and _shift < _CAP:
+                HUBDATA.transform(Matrix.Translation((-_o * 0.004, 0, 0))); _shift += 0.004; _n = _crossings(HUBDATA, _rim)
+            if _n > 0:      # cannot be cleared within the cap: leave it where the source has it and say so
+                HUBDATA.transform(Matrix.Translation((_o * _shift, 0, 0))); _shift = 0.0; _n = _n0
+        else:
+            _n = 0
+        bpy.data.meshes.remove(_rim)
+        text = "caliper %d triangles on a hub: %d triangle pairs crossed the rim in the source, moved inboard %.1f cm, %d cross now" % (len(HUBDATA.polygons), _n0, _shift * 100, _n)
+        if _n > 0: warn.append("caliper crosses the rim: %d triangle pairs, part hub_*, could not be cleared within 4 cm, left as the source has it" % _n)
     else:
-        _n = 0
-    bpy.data.meshes.remove(_rim)
-    WCHECK_TEXT = "caliper %d triangles on a hub: %d triangle pairs crossed the rim in the source, moved inboard %.1f cm, %d cross now" % (len(HUBDATA.polygons), _n0, _shift * 100, _n)
-    if _n > 0: WCHECK_WARN.append("caliper crosses the rim: %d triangle pairs, part hub_*, could not be cleared within 4 cm, left as the source has it" % _n)
-else:
-    _bmA.free()
+        _bmA.free()
+    data = W.data
+    bpy.data.objects.remove(W, do_unlink=True)
+    return {"data": data, "hub": HUBDATA, "c": c, "r": R, "text": text, "warn": warn}
+
+FW = build_wheel("front", FRONT_W, FRONT_H)
+if REAR_W is None and REAR_H is None:
+    RW = FW                                   # the front wheel and hub at all four corners
+elif REAR_W is None:                          # the front wheel with the model's own rear hub, moved from the rear axle to the front one
+    RW = build_wheel("rear", FRONT_W, REAR_H, hub_shift=_left_bone("f") - _left_bone("r"))
+else:                                         # the model's own rear wheel (and its own hub, if it has one)
+    RW = build_wheel("rear", REAR_W, REAR_H)
+c = FW["c"]; WHEEL_R = FW["r"]
+WCHECK_TEXT = FW["text"] if RW is FW else "front: %s; rear: %s" % (FW["text"], RW["text"])
+WCHECK_WARN += FW["warn"] + ([] if RW is FW else ["rear wheel: " + w_ for w_ in RW["warn"]])
 L("wheel check: %s" % WCHECK_TEXT)
 
 def decimate_mesh(ob, target):
@@ -302,31 +351,38 @@ def decimate_mesh(ob, target):
     with bpy.context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
         bpy.ops.object.modifier_apply(modifier=mod.name)
     ob.data.calc_loop_triangles(); L("wheel reduced %d -> %d triangles" % (n, len(ob.data.loop_triangles)))
-Wdata = W.data
-bpy.data.objects.remove(W, do_unlink=True)
+for n in WHEEL_SRC:
+    bpy.data.objects.remove(P.pop(n), do_unlink=True)
 def axle(a, b):
-    return (BONES[a].y + BONES[b].y) / 2 if a in BONES and b in BONES else None
+    ys = [BONES[n_].y for n_ in (a, b) if n_ in BONES]
+    return sum(ys) / len(ys) if ys else None
 fy = axle("wheel_lf", "wheel_rf"); ry = axle("wheel_lr", "wheel_rr")
-rtx = (abs(BONES["wheel_lr"].x) + abs(BONES["wheel_rr"].x)) / 2
 ftx = abs(c.x)
-rtx = rtx + (abs(c.x) - abs(BONES["wheel_lf"].x))
-L("axle y front %.3f rear %.3f; track half front %.3f rear %.3f" % (fy, ry, ftx, rtx))
-spots = {"wheel_lf": (-ftx, fy), "wheel_rf": (ftx, fy), "wheel_lr": (-rtx, ry), "wheel_rr": (rtx, ry)}
+if REAR_W is None:      # the front wheel at the rear bones, as far out from them as the front wheel sits from its own bone
+    _rb = [abs(BONES[n_].x) for n_ in ("wheel_lr", "wheel_rr") if n_ in BONES]
+    rtx = sum(_rb) / len(_rb) + (abs(c.x) - abs(_left_bone("f").x))
+    rz = c.z
+else:                   # its own wheel: its own track, the bottom of its tire level with the front tire's
+    rtx = abs(RW["c"].x)
+    rz = c.z - WHEEL_R + RW["r"]
+WHEEL_RS = {"wheel_lf": WHEEL_R, "wheel_rf": WHEEL_R, "wheel_lr": RW["r"], "wheel_rr": RW["r"]}
+L("axle y front %.3f rear %.3f; track half front %.3f rear %.3f; tire radius front %.4f rear %.4f" % (fy, ry, ftx, rtx, WHEEL_R, RW["r"]))
+spots = {"wheel_lf": (-ftx, fy, c.z, FW), "wheel_rf": (ftx, fy, c.z, FW), "wheel_lr": (-rtx, ry, rz, RW), "wheel_rr": (rtx, ry, rz, RW)}
 wheels = {}
-for nm, (x, y) in spots.items():
-    o = bpy.data.objects.new(nm, Wdata.copy())
+for nm, (x, y, z, wh) in spots.items():
+    o = bpy.data.objects.new(nm, wh["data"].copy())
     bpy.context.scene.collection.objects.link(o)
     if x > 0: o.data.transform(Matrix.Rotation(math.pi, 4, "Z"))
-    o.data.transform(Matrix.Translation((x, y, c.z)))
+    o.data.transform(Matrix.Translation((x, y, z)))
     wheels[nm] = o
-    if HUBDATA is not None:
-        h = bpy.data.objects.new("hub_" + nm[6:], HUBDATA.copy())
+    if wh["hub"] is not None:
+        h = bpy.data.objects.new("hub_" + nm[6:], wh["hub"].copy())
         bpy.context.scene.collection.objects.link(h)
         if x > 0:   # the wheel is turned round (its face looks out), but the caliper is mirrored across the car's middle so it stays on the same
                     # side of the axle as on the left (turning it put the passenger-side caliper behind the axle); then its faces are turned back out
             h.data.transform(Matrix.Scale(-1, 4, (1, 0, 0)))
             _bmh = bmesh.new(); _bmh.from_mesh(h.data); bmesh.ops.reverse_faces(_bmh, faces=_bmh.faces[:]); _bmh.to_mesh(h.data); _bmh.free()
-        h.data.transform(Matrix.Translation((x, y, c.z)))
+        h.data.transform(Matrix.Translation((x, y, z)))
         wheels[h.name] = h
 
 # ---- 8. group parts: openers keep their own pieces, windows stay separate (they ride the door), the rest is the body

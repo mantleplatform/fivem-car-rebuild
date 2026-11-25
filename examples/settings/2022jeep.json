@@ -1,5 +1,5 @@
 {
- "_note": "2022jeep (SUV, carpack2). Colours matched to the source: roof lights gray, hood decal white, engine gray, roof cross bars black. Side steps are black bedliner-style plastic (Joshua's choice; the source shows pink for a material called h2v_all_terrain_blue whose picture is missing).",
+ "_note": "2022jeep (Jeep Wrangler). Colours matched to the source: roof lights gray, hood decal white, engine gray, roof cross bars black. The side steps' picture is missing in the source (it shows pink), so they are black plastic.",
  "extra_materials": {
   "housing_gray": [
    0.55,
@@ -31,7 +31,7 @@
    "plastic_black"
   ],
   [
-   "\\[PRIMARY\\]\\.004",
+   "\\[PRIMARY\\]\\.002$",
    "plastic_black"
   ]
  ],
@@ -51,7 +51,7 @@
   ],
   "finish": "gloss"
  },
- "_secondary_paint_why": "GTA carvariations.meta: the second colour is 1 (graphite black) in every variation.",
+ "_secondary_paint_why": "GTA carvariations.meta gives colour 1 (graphite black) as the second colour in every variation.",
  "hidden_faces": "careful",
- "_hidden_faces_why": "2026-11-23: the standard hidden-face removal passes on the Jeep but leaves too little room in the hole check for the thinning steps; the careful version (fewer faces removed, as in the approved v3) leaves room."
+ "_hidden_faces_why": "The standard hidden-face removal passes on this car but leaves too little room in the hole check for the thinning steps; the careful version leaves room."
 }

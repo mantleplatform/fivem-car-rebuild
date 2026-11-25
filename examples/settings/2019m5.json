@@ -1,9 +1,9 @@
 {
- "_note": "2019m5 (BMW M5, carpack). Only what the automatic rules cannot know.",
+ "_note": "2019m5 (BMW M5). Only what the automatic rules cannot know: drop the middle brake light, the paint material that marks inner faces, the interior picture (the biggest leather in the file is the white one), and lamp parts.",
  "drop_parts": [
   "brakelight_m"
  ],
- "inner_material_regex": "PRIMARY\\].003",
+ "inner_material_regex": "PRIMARY\\]\\.001$",
  "pictures": {
   "interior": "leather_01"
  },
@@ -48,5 +48,5 @@
  "secondary_paint": {
   "match": "PRIMARY"
  },
- "_secondary_paint_why": "GTA carvariations.meta: the second colour is the body colour in every variation."
+ "_secondary_paint_why": "GTA carvariations.meta gives the body colour as the second colour in every variation."
 }

@@ -1,5 +1,5 @@
 {
- "_note": "camaro68t (1968 Camaro, two doors, carpack). The source marks the interior stitching as SECONDARY (the second paint colour); stitching is leather-job material, not paint, so it goes to interior. Everything else is automatic: the fender stripe and front bumper stay SECONDARY (the source's own stripe), carbon trim keeps the carbon_fiber job, the wheel's brake hardware stays black.",
+ "_note": "camaro68t (1968 Camaro, two doors). The source marks the seat stitching as SECONDARY (the second paint colour); stitching is interior material, not paint. Everything else is automatic.",
  "material_jobs": [
   [
    "^stitch",
@@ -9,5 +9,5 @@
  "secondary_paint": {
   "finish": "chrome"
  },
- "_secondary_paint_why": "Joshua 2026-11-23: chrome is fine (the bumpers and stripe are the second paint colour)."
+ "_secondary_paint_why": "The bumpers and stripe are the second paint colour; chrome bumpers."
 }

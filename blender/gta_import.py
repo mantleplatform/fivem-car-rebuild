@@ -1,11 +1,5 @@
-# FiveM (GTA .yft/.ytd) car -> one skinned .glb the vehicle builder takes, the way the X7 was made (clean.py + skin.py "gta"
-# variant), made general: Sollumz import of <name>_hi.yft (or <name>.yft) with <name>.ytd, drop collision/damage/low-LOD/props,
-# keep alpha only on glass and lights, bake every part to world space with its origin on its GTA bone, give missing wheels
-# copies of wheel_lf (right side turned 180 degrees), decimate heavy parts, nose to +X, ground at z=0, one bone per part
-# (GTA names), join and export. Also follows vehicle-model-guide.md: materials renamed by what they are (env RENAME_MATERIALS
-# "old=new;old2=new2": the tire, the rim, the brake), duplicate materials merged, and each wheel's pivot at the middle of the
-# wheel itself.
-#   blender -b <bootstrap.blend> --python fivem_to_glb.py -- <stream folder> <name> <out dir>
+# Stage 1, import: Sollumz import of <name>_hi.yft (or <name>.yft) with <name>.ytd, drop collision/damage/low-LOD/props, keep alpha only on
+# glass and lights, bake every part to world space with its origin on its GTA bone. Runs inside rebuild_blender.py (globals: S, SOLLUMZ, fail).
 import bpy, collections, math, os, re, sys, time
 _T0 = time.time()
 from mathutils import Matrix, Vector
@@ -22,7 +16,6 @@ def L(s):
 
 for ob in list(bpy.data.objects):
     bpy.data.objects.remove(ob, do_unlink=True)
-bpy.ops.preferences.addon_enable(module="bl_ext.repo_sollumz_org.sollumz")
 # One damaged texture makes Sollumz refuse the whole .ytd ("Mip 0 has invalid layer size"). Load every texture on its own and skip
 # only the bad one(s); their names are reported as unreadable.
 BAD_TEXTURES = []
@@ -41,11 +34,15 @@ try:
         return res
     _T.load_textures_from_native_g8 = _load_each
 except Exception as e:
-    print("FIVEM texture patch failed", e)
+    print("FIVEM WARNING: this Sollumz version could not be patched to skip damaged textures (%s); one bad texture may then stop all of them" % e)
 yft = name + "_hi.yft" if os.path.exists(os.path.join(src, name + "_hi.yft")) else name + ".yft"
+if not os.path.exists(os.path.join(src, yft)):
+    fail("no %s.yft or %s_hi.yft in %s" % (name, name, src))
 files = [{"name": yft}] + ([{"name": name + ".ytd"}] if os.path.exists(os.path.join(src, name + ".ytd")) else [])
+if len(files) == 1:
+    L("no %s.ytd next to the model: the car comes out without its own pictures" % name)
 try:
-    bpy.ops.sollumz.import_assets(directory=src + "\\", files=files)
+    bpy.ops.sollumz.import_assets(directory=os.path.join(src, ""), files=files)
 except Exception as e:
     # Sollumz reports a file it could not read after importing the others (a bad .ytd still leaves the model).
     L("IMPORT_ERROR %s" % str(e).strip().splitlines()[0][:200])
@@ -58,7 +55,7 @@ def finish_fail(status, why):
     RESULT.update(status=status, reason=why)
     open(os.path.join(out, name + "_result.json"), "w").write(json.dumps(RESULT))
     open(os.path.join(out, name + "_blender_log.txt"), "w").write("\n".join(log))
-    raise SystemExit("FIVEM_%s %s" % (status, why))
+    fail(why)
 import_err = [l for l in log if l.startswith("IMPORT_ERROR")]
 arm = next((o for o in bpy.data.objects if o.type == "ARMATURE"), None)
 if arm is None:
@@ -66,11 +63,10 @@ if arm is None:
 if any(".ytd" in l for l in import_err):
     finish_fail("skipped", "ytd unreadable: " + import_err[0])
 bones = {b.name: Vector(arm.matrix_world @ b.head_local) for b in arm.data.bones}
-# cleanup-fix: a two-wheeler (GODz13HDSG32...) has only wheel_lf and wheel_lr bones. Mantle's motorcycle has one wheel per axle on the center line,
-# named wheel_f and wheel_r, and a fork (a bone named fork...) that steers; so no wheel copies, no mirroring, no floating-part drop (its frame is its parts)
+# A two-wheeler has only wheel_lf and wheel_lr bones. This script builds four-wheel cars only.
 BIKE = all(n in bones for n in ("wheel_lf", "wheel_lr")) and not any(n in bones for n in ("wheel_rf", "wheel_rr", "wheel_lm1", "wheel_rm1"))
 if BIKE:
-    L("BIKE: two wheel bones, no right-hand wheels: motorcycle path (wheel_f / wheel_r on the center line)")
+    finish_fail("refused", "a two-wheeler (wheel_lf and wheel_lr bones only): motorcycles are not supported")
 
 
 def drop_reason(o):
@@ -82,10 +78,10 @@ def drop_reason(o):
     st = getattr(o, "sollum_type", "")
     if ln.endswith(".col") or ".col." in ln or str(st).startswith("sollumz_bound"):
         return "collision"
-    # "Dummy Helper" objects of 5,000 to 70,000 triangles are dzdaytona's body panels; only a small mesh named dummy is a placeholder
+    # some cars keep body panels of 5,000 to 70,000 triangles in "Dummy Helper" objects; only a small mesh named dummy is a placeholder
     if any(k in ln for k in ("shatter", "damage", "_dam", "lowlod", "_ng")) or ("dummy" in ln and len(o.data.polygons) < 1500):
         return "damage/low-LOD"
-    if ln.startswith("prop_") or "drug_case" in ln or "cash_case" in ln or "bobble" in ln:  # hycadesti's bobble_head (21,840 triangles) was joined to the wheel and copied to every corner
+    if ln.startswith("prop_") or "drug_case" in ln or "cash_case" in ln or "bobble" in ln:  # a dashboard bobble head once got joined to the wheel and copied to every corner
         return "prop"
     if len(o.data.polygons) == 0:
         return "empty"
@@ -100,14 +96,15 @@ for o in list(bpy.data.objects):
     elif o.type == "MESH":
         L("DROP %s: %s" % (o.name, r))
 
-# cleanup-fix: a model whose body ships as loose add-on files next to the main yft (gstspc1's gst_spc1_body_1..8, nirohybrid's variant files) gets the named files
-# merged in: env ADDON_YFTS "file.yft=partname;file2.yft=partname2". Each add-on mesh is unparented in place (same coordinates as the main model),
+# A model whose body ships as loose add-on files next to the main yft gets the named files merged in: setting extra_yfts
+# {"file.yft": "partname", ...}. Each add-on mesh is unparented in place (same coordinates as the main model),
 # its own skeleton and modifiers are removed, and it joins the parts under the given name (the part then gets its own bone like any other part).
-for _pair in [p for p in os.environ.get("ADDON_YFTS", "").split(";") if "=" in p]:
-    _yf, _pn = _pair.split("=", 1)
+for _yf, _pn in S["extra_yfts"].items():
+    if not os.path.exists(os.path.join(src, _yf)):
+        fail("setting extra_yfts names %s, which is not in %s" % (_yf, src))
     _before = set(bpy.data.objects)
     try:
-        bpy.ops.sollumz.import_assets(directory=src + "\\", files=[{"name": _yf}])
+        bpy.ops.sollumz.import_assets(directory=os.path.join(src, ""), files=[{"name": _yf}])
     except Exception as e:
         L("IMPORT_NOTE add-on %s: %s" % (_yf, str(e).strip().splitlines()[0][:150]))
     bpy.context.view_layer.update()
@@ -143,8 +140,7 @@ for _pair in [p for p in os.environ.get("ADDON_YFTS", "").split(";") if "=" in p
 
 
 def mirror_part(src, new_name):
-    """cleanup-fix: a part whose other-side twin is missing from the model (gle21 has no driver front door, and its right front panel 'cee' has no left twin) is
-    copied across the middle line: world x flipped, normals flipped, named for the missing twin (the bone is made later, at the part's origin)."""
+    """A part whose other-side twin is missing from the model (a car with no driver front door) is copied across the middle line: world x flipped, normals flipped, named for the missing twin (the bone is made later, at the part's origin)."""
     W = src.matrix_world.copy()
     t = W.translation
     M2 = Matrix.Translation((-t.x, t.y, t.z))
@@ -171,8 +167,10 @@ for _a, _b in (("door_dside_f", "door_pside_f"), ("door_dside_r", "door_pside_r"
         _mirrors.append((_a, _b))
     elif _b in _present and _a not in _present:
         _mirrors.append((_b, _a))
-for _n in [x for x in os.environ.get("MIRROR_PARTS", "").split(",") if x]:
-    if _n in _present:
+for _n in S["copy_to_other_side"]:
+    if _n not in _present:
+        L("WARNING: copy_to_other_side names %s, which is not a part of this car" % _n)
+    else:
         _mirrors.append((_n, _n + "_m"))
 for _srcn, _newn in _mirrors:
     _src = next(o for o in keep if o.name == _srcn)
@@ -220,100 +218,9 @@ for m in bpy.data.materials:
 L("diffuse wired to base color: %d materials %s" % (len(fixed_diffuse), fixed_diffuse[:12]))
 L("black pictures replaced by black: %s" % fixed_black)
 
-# Materials renamed by what they are, so Mantle recognizes them (tire -> its rubber, rim -> wheel swaps).
-for pair in [p for p in os.environ.get("RENAME_MATERIALS", "").split(";") if "=" in p]:
-    old, new = pair.split("=", 1)
-    m = bpy.data.materials.get(old)
-    if m:
-        m.name = new
-        L("renamed material %s -> %s" % (old, new))
-    else:
-        L("RENAME_MISSING %s" % old)
-
-
-def merge_duplicate_materials(objs):
-    """Materials that differ only by a '.001' suffix and have the same pictures and color become one."""
-    def key(m):
-        base = re.sub(r"\.\d{3}$", "", m.name)
-        imgs, col = (), None
-        if m.node_tree:
-            imgs = tuple(sorted(n.image.name for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image))
-            pb = next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
-            if pb is not None and not pb.inputs["Base Color"].links:
-                col = tuple(round(x, 3) for x in pb.inputs["Base Color"].default_value)
-        return (base, imgs, col)
-    keep = {}
-    before = {s.material.name for o in objs for s in o.material_slots if s.material}
-    for o in objs:
-        for slot in o.material_slots:
-            if slot.material:
-                slot.material = keep.setdefault(key(slot.material), slot.material)
-    after = {s.material.name for o in objs for s in o.material_slots if s.material}
-    L("merged duplicate materials: %d -> %d" % (len(before), len(after)))
-
-
-def apply_roles(objs):
-    """Rebuild the car out of Mantle's parts: every material goes to the one that does its job, and parts nobody sees are removed.
-    MANTLE_ROLES is a JSON list of [regex, target material name, optional [r,g,b] to make it flat] in priority order (the first
-    regex that matches a material wins); MANTLE_DROP is ';'-separated regexes of materials whose faces are deleted."""
-    import json, bmesh
-    roles = json.loads(os.environ.get("MANTLE_ROLES", "[]"))
-    drops = [d for d in os.environ.get("MANTLE_DROP", "").split(";") if d]
-    for o in objs:
-        gone = [i for i, sl in enumerate(o.material_slots) if sl.material and any(re.search(d, sl.material.name) for d in drops)]
-        if gone:
-            bm = bmesh.new(); bm.from_mesh(o.data)
-            n = len(bm.faces)
-            bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index in gone], context="FACES")
-            L("removed %d hidden triangles from %s" % (n - len(bm.faces), o.name))
-            bm.to_mesh(o.data); bm.free()
-    targets = {}
-    for pattern, target, *flat in roles:
-        m = bpy.data.materials.get(target)
-        if m is None:
-            m = bpy.data.materials.new(target)
-            m.use_nodes = True
-            pb = next(n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
-            pb.inputs["Base Color"].default_value = tuple(flat[0]) + (1.0,) if flat else (0.8, 0.8, 0.8, 1.0)
-        targets[pattern] = m
-    moved = collections.Counter()
-    for o in objs:
-        for sl in o.material_slots:
-            if not sl.material:
-                continue
-            for pattern, _t, *_f in roles:
-                if re.search(pattern, sl.material.name):
-                    if sl.material is not targets[pattern]:
-                        moved[(sl.material.name, targets[pattern].name)] += 1
-                        sl.material = targets[pattern]
-                    break
-    L("materials merged by role: %s" % sorted({"%s -> %s" % k for k in moved}))
-
-
-
-
 def bone_of(o):
     base = o.name.split(".")[0]
     return base if base in bones else None
-
-
-def decimate(ob, ratio):
-    before = len(ob.data.polygons)
-    if os.environ.get("NO_DECIMATE") and re.search(os.environ["NO_DECIMATE"], ob.name):
-        return
-    # cleanup-fix: weld doubled vertices first and keep the result in triangles (quads collapsed unevenly leave shards: GODzHYCADEMK4V2, purosangue)
-    import bmesh
-    _bm = bmesh.new()
-    _bm.from_mesh(ob.data)
-    bmesh.ops.remove_doubles(_bm, verts=_bm.verts, dist=1e-5)
-    _bm.to_mesh(ob.data)
-    _bm.free()
-    mod = ob.modifiers.new("Decimate", "DECIMATE")
-    mod.ratio = ratio
-    mod.use_collapse_triangulate = True
-    with bpy.context.temp_override(object=ob, active_object=ob, selected_objects=[ob]):
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-    L("DECIMATE %s %d -> %d" % (ob.name, before, len(ob.data.polygons)))
 
 
 # bake each part into world space (matrix_world already includes Sollumz's bone constraints), origin on its bone
@@ -326,8 +233,8 @@ for o in keep:
     if o.data.users > 1:
         o.data = o.data.copy()
     o.data.transform(mw)
-    # cleanup-fix: a skinned part (armature modifier, one vertex group) on a side bone can come out with its geometry offset by twice the bone's sideways
-    # distance (mi8's LED bars, police lights and front trims: their boxes are exactly symmetrical once moved back). Move it back.
+    # A skinned part (armature modifier, one vertex group) on a side bone can come out with its geometry offset by twice the bone's sideways
+    # distance (seen on light bars and trims: their boxes are exactly symmetrical once moved back). Move it back.
     _bn = o.name.split(".")[0]
     if _bn in bones and not _bn.startswith("wheel_") and not _bn.startswith("door_") and abs(bones[_bn].x) > 0.3 and o.data.vertices:
         _xs = [v.co.x for v in o.data.vertices]

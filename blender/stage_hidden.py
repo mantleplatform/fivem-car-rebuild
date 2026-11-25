@@ -162,14 +162,15 @@ for n_, o_ in P.items():
     for t_ in o_.data.loop_triangles: _mt[o_.data.materials[t_.material_index].name if t_.material_index < len(o_.data.materials) else "?"] += 1
 L("triangles by material: %s" % dict(_mt.most_common()))
 
-# 2. the tires: one reduced wheel was built into four in stage_parts at full detail; reduce them to the wheel budget
-_w0 = max(len(o_.data.polygons) for n_, o_ in P.items() if n_.startswith("wheel_"))
+# 2. the tires: stage_parts built the four wheels at full detail; reduce them to the wheel budget
+_wpolys = {n_[6:]: len(o_.data.polygons) for n_, o_ in P.items() if n_.startswith("wheel_")}
+_w0 = max(_wpolys.values())
 def op_wheels(budget):
     hub_tris = {}
     for n_, o_ in P.items():
         if n_.startswith("hub_"):    # the caliper is reduced by the same share as its wheel, but never below 600 triangles
             o_.data.calc_loop_triangles()
-            decimate_mesh(o_, max(600, int(len(o_.data.loop_triangles) * min(1.0, budget / float(_w0)))))
+            decimate_mesh(o_, max(600, int(len(o_.data.loop_triangles) * min(1.0, budget / float(_wpolys.get(n_[4:], _w0))))))
             o_.data.calc_loop_triangles(); hub_tris[n_[4:]] = len(o_.data.loop_triangles)
     for n_, o_ in P.items():
         if n_.startswith("wheel_"): decimate_mesh(o_, max(1500, budget - hub_tris.get(n_[6:], 0)))   # a wheel and its caliper together stay within the budget

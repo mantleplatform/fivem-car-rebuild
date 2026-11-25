@@ -12,7 +12,7 @@ FID_GLASS = re.compile(r"glass|window", re.I)
 FID_CELL = 0.035
 # share of the rays (of the ones that hit either car) that may differ. Calibrated on the approved 2019m5 (all steps passing) and the damaged 2022jeep.
 FID_LIMITS = {"lost": 0.0015, "extra": 0.0015, "moved": 0.004, "cabin": 0.002}
-# Cabin view (2026-11-23): rays from eyes over the seats (stage_hidden.py fills FID_EYES) out in every direction, glass taken away, doors kept.
+# Cabin view: rays from eyes over the seats (stage_hidden.py fills FID_EYES) out in every direction, glass taken away, doors kept.
 # A ray that hits the source but goes farther (or out) in the rebuild is a hole in the cabin: the outside passes cannot see these, and a step
 # that opened the footwells to the wheel arches once passed. Limit: share of the cabin rays that hit the source.
 FID_EYES = []
