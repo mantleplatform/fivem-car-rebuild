@@ -48,7 +48,8 @@ def find_blender(given):
 
 
 def low_priority():
-    """Blender runs at below-normal priority so the computer stays usable."""
+    """Blender runs at below-normal priority so the computer stays usable ("low_priority": false in config.json turns
+    that off)."""
     if os.name == "nt":
         return {"creationflags": 0x4000}   # BELOW_NORMAL_PRIORITY_CLASS
     return {"preexec_fn": lambda: os.nice(10)}
@@ -136,7 +137,8 @@ def main():
 
     def blender(script, args):
         cmd = [exe, "-b", "--python", os.path.join(BLENDER_DIR, script), "--"] + args
-        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **low_priority())
+        prio = low_priority() if cfg.get("low_priority", True) else {}
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **prio)
 
     try:
         t0 = time.time()

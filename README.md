@@ -37,7 +37,7 @@ Point the script at the car's own folder, the one that holds `<name>.yft` (and u
 python rebuild_car.py "C:\FiveM\mycarpack\stream\mycar"
 ```
 
-That is all most cars need. It takes about a minute, then about two minutes for the pictures. Blender runs in the background at low priority, so you can keep working.
+That is all most cars need. It takes about a minute, then about two minutes for the pictures. Blender runs in the background at low priority, so you can keep working (set `"low_priority": false` in `config.json` to run it at normal speed).
 
 Options:
 
