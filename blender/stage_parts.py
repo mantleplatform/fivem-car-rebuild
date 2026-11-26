@@ -516,10 +516,10 @@ def build_wheel(label, wheel_n, hub_n, hub_shift=None):
         _o = 1.0 if c.x > 0 else -1.0      # outward (away from the car) is +X for a wheel on the positive side
         _cv = [v.co for v in HUBDATA.vertices]
         _rmin = min(math.hypot(p.y, p.z) for p in _cv); _rmax = max(math.hypot(p.y, p.z) for p in _cv)
-        _rimR = max(math.hypot(v.co.y, v.co.z) for v in _rim.vertices)
+        _rimR = max((math.hypot(v.co.y, v.co.z) for v in _rim.vertices), default=0.0)   # no rim material on this wheel: nothing to cross
         _band = [v.co.x * _o for v in _rim.vertices if _rmin - 0.01 <= math.hypot(v.co.y, v.co.z) <= min(_rmax + 0.01, 0.85 * _rimR)]
         _calmax = max(p.x * _o for p in _cv)
-        _n0 = _spin_crossings(HUBDATA, _rim)
+        _n0 = _spin_crossings(HUBDATA, _rim) if _rim.vertices else 0
         _CAP = 0.04     # a caliper is moved inboard by at most 4 cm (it hangs just behind the spokes); further than that is not the same car
         _shift = min(_CAP, max(0.0, _calmax - (min(_band) - 0.005))) if _band else 0.0
         if _n0 > 0:

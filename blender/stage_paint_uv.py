@@ -107,7 +107,7 @@ L("pieces %d -> blobs %d (merged %d)" % (len(isl), len(groups), merged))
 nweld = 0
 for g, members in groups.items():
     if len(members) < 2: continue
-    vs = list({v for i in members for f in isl[i] for v in f.verts})
+    vs = list({v for i in members for f in isl[i] if f.is_valid for v in f.verts if v.is_valid})   # an earlier weld can collapse a face of this blob
     before = len(bm.verts)
     bmesh.ops.remove_doubles(bm, verts=vs, dist=3e-4)
     nweld += before - len(bm.verts)
