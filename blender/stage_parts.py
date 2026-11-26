@@ -55,9 +55,11 @@ for _k, _v in S["extra_materials"].items():   # flat materials a car needs besid
 _badjobs = sorted(({j_ for _rx, j_ in S["material_jobs"]} | {j_ for _r in S["part_material_jobs"].values() for _rx, j_ in _r} | set(S["pictures"])) - set(M))
 if _badjobs:
     fail("settings name jobs that do not exist: %s. Jobs: %s (or a name from extra_materials)" % (_badjobs, ", ".join(M)))
-# The tail and indicator lenses keep a flat red / amber base colour and no picture: a picture replaces the base colour (the GLB then says white),
+# The lamp lenses keep a flat base colour and no picture: a picture replaces the base colour (the GLB then says white),
 # and Mantle keeps a lens's own colour only when its base colour is red to amber (otherwise it becomes the shared clear lens).
-PICJOBS = ("interior", "carbon", "badge", "grille", "reflector", "head_lens", "reverse_lens")
+# Headlights and reverse lights are plain clear too, whatever the source draws on them: GTA lamp pictures are atlases (bulbs, housings, an
+# "off" texture), and copied onto the lens they show as dark, tinted or patchy lights. A car's settings can still name a picture for them.
+PICJOBS = ("interior", "carbon", "badge", "grille", "reflector") + tuple(k for k in ("head_lens", "reverse_lens") if k in S["pictures"])
 # the car's own pictures: the source materials point at empty placeholders, the real pictures sit in the "<name>.dds" images
 DDS = {i.name.lower(): i for i in bpy.data.images if i.name.lower().endswith(".dds") and i.size[0] > 0}
 def diffuse_name(m):
@@ -266,11 +268,11 @@ for a, b in JOIN.items(): L("auto-join: %s -> %s%s" % (a, b, " (mirror)" if a in
 def wheel_jobs(wo):
     vs = [v.co for v in wo.data.vertices]
     wc_y = (min(v.y for v in vs) + max(v.y for v in vs)) / 2; wc_z = (min(v.z for v in vs) + max(v.z for v in vs)) / 2
-    rad = collections.defaultdict(float)
+    rad = collections.defaultdict(float); rmin = collections.defaultdict(lambda: 9.0)
     for p in wo.data.polygons:
         mn_ = wo.material_slots[p.material_index].material.name
         for vi in p.vertices:
-            v = wo.data.vertices[vi].co; rad[mn_] = max(rad[mn_], math.hypot(v.y - wc_y, v.z - wc_z))
+            v = wo.data.vertices[vi].co; r_ = math.hypot(v.y - wc_y, v.z - wc_z); rad[mn_] = max(rad[mn_], r_); rmin[mn_] = min(rmin[mn_], r_)
     WJOB = {}
     tire_name = max(rad, key=rad.get)
     if S["wheel"].get("tire"):
@@ -278,6 +280,9 @@ def wheel_jobs(wo):
     for m_ in rad:
         b = base(m_)
         if m_ == tire_name: WJOB[m_] = "tire"
+        elif not S["wheel"].get("tire") and (re.search(r"tire|tyre|pneu|rubber|sidewall|reifen", b, re.I)
+                                              or rmin[m_] >= 0.7 * rad[tire_name] and rad[m_] >= 0.9 * rad[tire_name]):
+            WJOB[m_] = "tire"     # the sidewall under its own material (a tire word, or a ring only in the tire's outer part: michelin02)
         elif S["wheel"].get("brake") and re.search(S["wheel"]["brake"], b, re.I) or re.search(r"brake|caliper|disc|rotor", b, re.I): WJOB[m_] = "plastic_black"
         elif S["wheel"].get("rim") and not re.search(S["wheel"]["rim"], b, re.I): WJOB[m_] = "plastic_black"
         else: WJOB[m_] = "rim"
@@ -343,7 +348,7 @@ for n, o in P.items():
         if newslots[i] == "plastic_black" and not any(n.startswith(pre) for pre, _j in LIGHT_PARTS) and n not in WJOBS and not NOLAMP.match(n):
             # A lamp outside the lamp parts (a headlight built into the body): GTA lights each face by its ID. A face whose ID names a
             # light becomes that light's lens, only where that lamp can be: a headlight in the front quarter of the car, a tail or reverse
-            # light in the rear quarter, an indicator in either; there an unnamed ID is the lamp's inside (reflector). The same shader
+            # light in the rear quarter, an indicator anywhere (a mirror's); at the ends an unnamed ID is the lamp's inside (reflector). The same shader
             # elsewhere (door-trim mood lights, dashboard symbols, glowing hub caps) stays as it was: Mantle would light it as a headlight.
             _ids = _ids or face_light_ids(o) or []
             _kj = {"head": "head_lens", "rear": "tail_lens", "left": "indicator_lens", "right": "indicator_lens", "reverse": "reverse_lens"}
@@ -352,8 +357,8 @@ for n, o in P.items():
                 if p.material_index != i: continue
                 _k = ID_KIND.get(_ids[p.index]) if p.index < len(_ids) else None
                 _y = p.center.y; _front = _y > CAR_Y1 - 0.25 * (CAR_Y1 - CAR_Y0); _rear = _y < CAR_Y0 + 0.25 * (CAR_Y1 - CAR_Y0)
-                if not (_front or _rear): continue
                 if _k == "head" and not _front or _k in ("rear", "reverse") and not _rear: continue
+                if _k not in ("left", "right") and not (_front or _rear): continue    # an indicator may be anywhere (a mirror's)
                 facejob[p.index] = _kj.get(_k, "reflector"); _c[facejob[p.index]] += 1
             if _c: L("lamp %s in %s: %s" % (sn, n, dict(_c)))
             continue
@@ -756,12 +761,13 @@ for _o in objs:
                 if _hit[2] is not None and _bk[_hit[2]].normal.dot(p.normal) > 0.3: q = _bk[_hit[2]]
             if q is None: continue
             _qj = _mn[q.material_index]; _h = _hue(_src_colour(_me, q, _sa, _uv))
-            if _qj == M["tail_lens"].name or (_h == "red" and (_o.matrix_world @ p.center).x < _xmid): _vote[p.index] = "tail_lens"
-            elif _qj in _LENSJOBS or _qj == M["reflector"].name: _vote[p.index] = "head_lens"   # over a lamp, or a lamp's chrome inside
+            if _qj == M["indicator_lens"].name: _vote[p.index] = "indicator_lens"   # glass right over a turn signal stays its colour
+            elif _qj == M["tail_lens"].name or (_h == "red" and (_o.matrix_world @ p.center).x < _xmid): _vote[p.index] = "tail_lens"
+            elif _qj == M["reverse_lens"].name: _vote[p.index] = "reverse_lens"
+            elif _qj in _LENSJOBS: _vote[p.index] = "head_lens"
+            elif _qj == M["reflector"].name and (_o.matrix_world @ p.center).x > _xmid: _vote[p.index] = "head_lens"   # a headlight's chrome inside
         # One cover piece (cover faces of one source material joined by corners) is one colour: deciding face by face left a saw-tooth of red
-        # and clear where some faces lie over the red lamp and their neighbours over its black housing. A piece where a fifth or more of the
-        # area lies over a tail light becomes a tail light as a whole; a smaller share (a rear window over the third brake light) changes only
-        # those faces.
+        # and clear where some faces lie over the red lamp and their neighbours over its black housing.
         _par = {}
         def _find(v):
             while _par.setdefault(v, v) != v: _par[v] = _par[_par[v]]; v = _par[v]
@@ -773,19 +779,24 @@ for _o in objs:
         for p in _cov: _isl[_find((_sa[p.index].value, p.vertices[0]))].append(p)
         for _fs in _isl.values():
             _area = sum(p.area for p in _fs) or 1.0
-            _tail = sum(p.area for p in _fs if _vote.get(p.index) == "tail_lens" or _mn[p.material_index] == M["tail_lens"].name) / _area
-            _head = sum(p.area for p in _fs if _vote.get(p.index) == "head_lens") / _area
-            # a cover piece in the front quarter is a headlight's cover when a little of it (5%) lies over the lamp: modders often build the
-            # inside black, under smoked glass, with only the projector as lamp. Elsewhere a fifth, as for the tail lights.
-            _hmin = 0.05 if sum(p.center.x for p in _fs) / len(_fs) > _xmid + 0.25 * (max(_xs) - min(_xs)) else 0.2
+            # (votes only, plus faces already a tail light or turn signal, which stay: a cover already made a reverse lens by its part name
+            # does not vote for itself)
+            _share = {k: sum(p.area for p in _fs if _vote.get(p.index) == k or k in ("tail_lens", "indicator_lens") and _mn[p.material_index] == M[k].name) / _area
+                      for k in ("tail_lens", "head_lens", "indicator_lens", "reverse_lens")}
+            # The piece takes the lamp most of it lies over, as a whole: a tenth over a tail light or a turn signal is enough (one side of a
+            # mirrored pair can sit a little off its lamp); a front cover over a headlight needs 5% (modders build the inside black, under
+            # smoked glass, with only the projector as lamp), elsewhere a fifth. A piece that reaches none of these (a rear window over the
+            # third brake light) changes only the faces right over a lamp.
+            _front = sum(p.center.x for p in _fs) / len(_fs) > _xmid + 0.25 * (max(_xs) - min(_xs))
+            _ok = {k: v for k, v in _share.items() if v >= {"tail_lens": 0.1, "head_lens": 0.05 if _front else 0.2, "indicator_lens": 0.1, "reverse_lens": 0.2}[k]}
+            # a front cover over any of a headlight (2%) is the headlight's, whatever turn-signal or running-light strip shares it
+            _whole = "head_lens" if _front and _share["head_lens"] >= 0.02 else max(_ok, key=lambda k: (_ok[k], k == "tail_lens")) if _ok else None
+            if len(_fs) >= 20: L("cover piece %s, %d faces, %s: shares %s -> %s" % (SRCLIST[_sa[_fs[0].index].value], len(_fs), "front" if _front else "back/middle", {k: round(v, 2) for k, v in _share.items() if v}, _whole))
             for p in _fs:
                 _was = _mn[p.material_index]
-                if _was == M["tail_lens"].name: continue      # a tail light stays one
-                if _tail >= 0.2: _new = "tail_lens"
-                elif _vote.get(p.index) == "tail_lens": _new = "tail_lens"
-                elif _head >= _hmin and _was == M["glass"].name: _new = "head_lens"   # a headlight's whole cover, not only the faces over its lens
-                elif _vote.get(p.index) == "head_lens" and _was == M["glass"].name: _new = "head_lens"
-                else: continue
+                if _was in (M["tail_lens"].name, M["indicator_lens"].name): continue      # a tail light or turn signal stays one
+                _new = _whole or _vote.get(p.index)
+                if _new is None or _new != "tail_lens" and _was != M["glass"].name: continue   # a lens already changes only to the tail light it covers
                 if M[_new].name != _was:
                     p.material_index = _job_index(_new); _covers["%s -> %s" % (_was, M[_new].name)] += 1
     _me.update()

@@ -293,8 +293,9 @@ if _yw:
             keep.remove(o)
 
 # Small flat pieces lying just above the ground (door puddle-light logos the source projects onto the road) are not part of the car:
-# in the game they float under it. A loose, flat island of at most 4 faces in a non-wheel part, within 5 cm of the tires' lowest point
-# and under 60 cm across, is deleted. (Bigger low pieces, such as underglow strips, are left alone.)
+# in the game they float under it. A loose, flat, level island of at most 64 faces in a non-wheel part, within 8 cm of the tires' lowest
+# point and under 60 cm across, is deleted (the logos are 8 to 32 faces, 2 to 6 cm up, under each door). Bigger low pieces, such as
+# underglow strips and undertrays, are left alone.
 _wz = [(_np.array([v.co.z for v in o.data.vertices]) + o.location.z).min() for o in keep
        if o.type == "MESH" and o.name.startswith("wheel_") and o.data.vertices]
 if _wz:
@@ -313,7 +314,7 @@ if _wz:
                         if _h.index not in _seen: _seen.add(_h.index); _st.append(_h)
             _ps = [v.co + o.location for g in _isl for v in g.verts]
             _zs = [p.z for p in _ps]
-            if (len(_isl) <= 4 and max(_zs) - min(_zs) < 0.01 and max(_zs) - _ground < 0.05
+            if (len(_isl) <= 64 and max(_zs) - min(_zs) < 0.01 and max(_zs) - _ground < 0.08
                     and max(max(p.x for p in _ps) - min(p.x for p in _ps), max(p.y for p in _ps) - min(p.y for p in _ps)) < 0.6):
                 _gone += _isl
                 L("DROP ground piece of %s: %d faces at %.0f cm above the ground, x %.2f y %.2f" % (o.name, len(_isl), (max(p.z for p in _ps) - _ground) * 100, _ps[0].x, _ps[0].y))

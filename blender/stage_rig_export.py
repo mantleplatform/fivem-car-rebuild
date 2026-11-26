@@ -56,12 +56,22 @@ for pn in names:
     b.tail = head + (Vector((0, 0.06, 0)) if pn.startswith(("wheel_", "hub_", "bonnet", "boot")) else Vector((0, 0, 0.06)))
     b.parent = root
     bone_of[pn] = pn
-for ch, pa in (("window_lf", "door_dside_f"), ("window_rf", "door_pside_f"), ("window_lr", "door_dside_r"), ("window_rr", "door_pside_r")):
-    if ch not in arm_data.edit_bones or pa not in arm_data.edit_bones:    # a two-door car has no rear doors: its rear windows stay on the body
-        if ch in arm_data.edit_bones: L("bone %s stays on the body (no %s)" % (ch, pa))
-        continue
-    arm_data.edit_bones[ch].parent = arm_data.edit_bones[pa]
-    L("bone %s rides %s" % (ch, pa))
+# Each window rides the door it sits in, found by place, not by name: models call the rear-door glass window_lr, window_lm or
+# window_rm as they please. A window rides the door on its own side that holds most of its length (80% or more, 3 cm slack),
+# the one it overlaps most; a window in no door (a two-door car's rear side glass, a quarter window) stays on the body.
+def _xr(pn): xs = [v.x for v in cen[pn]]; return min(xs), max(xs)
+_doors = [d for d in names if d.startswith("door_") and d in arm_data.edit_bones and cen[d]]
+for ch in [w for w in names if w.startswith("window_") and w in arm_data.edit_bones and cen[w]]:
+    wc_ = bbc(ch); w0, w1 = _xr(ch); best, bo = None, 0.0
+    for d in _doors:
+        if (bbc(d).y > 0) != (wc_.y > 0): continue
+        d0, d1 = _xr(d)
+        ov = (min(w1, d1 + 0.03) - max(w0, d0 - 0.03)) / max(w1 - w0, 1e-6)   # share of the window's length inside the door's
+        if ov > bo: best, bo = d, ov
+    if best is None or bo < 0.8:
+        L("bone %s stays on the body (in no door%s)" % (ch, ", %.0f%% in %s" % (100 * bo, best) if best else "")); continue
+    arm_data.edit_bones[ch].parent = arm_data.edit_bones[best]
+    L("bone %s rides %s (%.0f%% inside it)" % (ch, best, 100 * bo))
 bpy.ops.object.mode_set(mode="OBJECT")
 for pn in names:
     L("bone %s head %s" % (pn, tuple(round(x, 3) for x in heads.get(pn, Vector((0, 0, 0.47))))))
