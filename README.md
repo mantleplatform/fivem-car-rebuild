@@ -87,7 +87,7 @@ They are simple Blender pictures (flat lighting, body paint shown red) with the 
 - `after_open_*`: doors, hood and trunk open. Check they swing from the right place and the window goes with its door.
 - `after_rail_*` and `after_roofrails_left_vs_right`: left against right. Paint should look the same on both sides.
 - `after_grid_*`: a test grid on the paint. This is how a livery will sit on the car. The grid should be even, not stretched or torn.
-- `after_lights_*`: the lamps up close.
+- `after_lights_*`: the lamps up close, with everything else dark and each lamp in its own color: headlight cream white, tail and brake light red, reverse light pale blue-white, turn signal orange. A lamp sitting behind another lamp's cover doesn't show.
 - `after_shade_*`: the shading on the door and hood. It should be smooth with crisp edges.
 - `after_livery_*`: only for a car with a livery: the car wearing it over its starting paint color.
 
@@ -153,6 +153,8 @@ A good order for a new car: run it with no settings, read the log, look at the p
 - A livery printed on the body paint (a paint material with its own picture in the car's files, at least 512 px) becomes a real Mantle livery: the body stays plain paint, and the picture is copied onto the rebuilt paint layout as `<name>_livery.png` (2048 px, see-through where the paint has no picture). Players can switch it off and recolor the paint under it. To keep a picture off the livery, send its material to `PRIMARY` with `material_jobs`.
 - Where paint and livery can't be told apart (a picture on the second paint color), the picture stays on the car itself in materials named `print`, `print_2` and so on, at most 2048 px. Players can't recolor those parts.
 - Some cars put their livery on GTA's lamp shader, so the body glows when the headlights are on. The script notes which light in `<name>_paint.json` as `livery_glow` (`head`, `rear` and so on). In the vehicle builder's Liveries step, set that livery's **Livery Glows** light to it, and the livery lights up with that light in Mantle.
+- A lamp's glass cover takes the color of what lies behind it in the source (the nearest face within 6 cm, else straight behind up to 20 cm, seeing through an inner cover): red, or a tail lens, at the back makes it a tail light; any other lamp or a lamp's chrome inside makes it the clear lens. A cover piece is decided as a whole (a fifth of it over a tail light, or 5% of a front cover over a headlight), so it doesn't come out saw-toothed. Small red bumper reflectors become tail light too.
+- GTA's lamp shader outside the lamp parts becomes a lamp only at the right end of the car (headlights in the front quarter, tail and reverse lights in the rear quarter); on wheels, the dashboard, the steering wheel or door trim it stays as it was.
 - Pictures GTA draws on the lamp shader (not the livery) glow too: they stay on the car in materials named `print_glow_<light>`, `print_2_glow_<light>` and so on, which glow with that light.
 - Paint layout uses 30 to 45% of the livery sheet; window frames and fender shapes leave gaps. The layout can come out packed a little differently from one run to the next.
 - Thinning can tear thin parts, so thin bars and brackets are never thinned. Use `protect_from_thinning` for anything else that tears.

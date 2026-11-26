@@ -155,6 +155,9 @@ def rx_first(rules, b):
     return None
 LAMP_BODY = re.compile(r"^light[a-z]?$|light_?set|reflect|chrome|bowl|bulb", re.I)   # GTA lamp-body pictures (lighta, light_seta_d ...), not glass or a glow
 LIGHT_PARTS = (("headlight", "head_lens"), ("extralight", "head_lens"), ("taillight", "tail_lens"), ("brakelight", "tail_lens"), ("reversinglight", "reverse_lens"), ("indicator", "indicator_lens"))
+NOLAMP = re.compile(r"^(wheel_|hub_|dials|steeringwheel|seat)")   # parts whose lamp-shader faces are never a car light
+_ys = [(o_.matrix_world @ v_.co).y for o_ in P.values() for v_ in o_.data.vertices]
+CAR_Y0, CAR_Y1 = (min(_ys), max(_ys)) if _ys else (0.0, 1.0)      # the car's length in the source (forward is +Y)
 
 # ---- 3. which source parts are dropped / opened / mirrors
 # The wheels. GTA draws wheel_lf at every corner unless the model has its own rear wheel (wheel_lr / wheel_rr), and draws each hub (brake)
@@ -337,17 +340,22 @@ for n, o in P.items():
             for p in me.polygons:
                 if p.material_index == i and p.index < len(_ids) and _ids[p.index] in ID_KIND: LIVERY_GLOW[ID_KIND[_ids[p.index]]] += 1
             continue
-        if newslots[i] == "plastic_black" and not any(n.startswith(pre) for pre, _j in LIGHT_PARTS) and n not in WJOBS:
+        if newslots[i] == "plastic_black" and not any(n.startswith(pre) for pre, _j in LIGHT_PARTS) and n not in WJOBS and not NOLAMP.match(n):
             # A lamp outside the lamp parts (a headlight built into the body): GTA lights each face by its ID. A face whose ID names a
-            # light becomes that light's lens; the rest is the lamp's inside (reflector), not black plastic.
+            # light becomes that light's lens, only where that lamp can be: a headlight in the front quarter of the car, a tail or reverse
+            # light in the rear quarter, an indicator in either; there an unnamed ID is the lamp's inside (reflector). The same shader
+            # elsewhere (door-trim mood lights, dashboard symbols, glowing hub caps) stays as it was: Mantle would light it as a headlight.
             _ids = _ids or face_light_ids(o) or []
             _kj = {"head": "head_lens", "rear": "tail_lens", "left": "indicator_lens", "right": "indicator_lens", "reverse": "reverse_lens"}
             _c = collections.Counter()
             for p in me.polygons:
                 if p.material_index != i: continue
                 _k = ID_KIND.get(_ids[p.index]) if p.index < len(_ids) else None
+                _y = p.center.y; _front = _y > CAR_Y1 - 0.25 * (CAR_Y1 - CAR_Y0); _rear = _y < CAR_Y0 + 0.25 * (CAR_Y1 - CAR_Y0)
+                if not (_front or _rear): continue
+                if _k == "head" and not _front or _k in ("rear", "reverse") and not _rear: continue
                 facejob[p.index] = _kj.get(_k, "reflector"); _c[facejob[p.index]] += 1
-            L("lamp %s in %s: %s" % (sn, n, dict(_c)))
+            if _c: L("lamp %s in %s: %s" % (sn, n, dict(_c)))
             continue
         if not newslots[i].startswith("print"): continue
         _ids = _ids or face_light_ids(o)
@@ -683,34 +691,105 @@ import collections
 from mathutils import Vector
 objs = [o for o in bpy.data.objects if o.type == "MESH"]
 GL = re.compile(r"glass|lens", re.I)
-# A lamp's outer cover made of window glass (some cars cover their tail lights with the window shader): it showed as dark tinted window
-# over the lamp. A glass face with a lamp lens right behind it (under 6 cm, facing the same way) becomes a lamp cover: red over a tail
-# lamp, the clear lens over any other.
+# A lamp's outer cover is GTA glass (the vehglass shader); its colour is what shows through it. Models hang one cover on several lamp bones
+# (half a tail light on the reversing-light bone) and put a lamp's red inside on the plain body shader, so neither the part name nor the
+# cover's own (often black, smoked) picture tells the colour. Each glass face with something right behind it (under 6 cm, facing the same
+# way) takes the colour of the nearest face behind it, from that face's own source picture: a tail lens, or red in the rear half of the
+# car, makes a tail light; window glass over any other lamp becomes the clear lens; anything else (a black housing) leaves the face as it
+# was. Glass over a lamp's chrome inside (reflector) counts as over a lamp. A face already a tail light stays one, and nothing is ever made amber (an orange headlight is what this avoids).
+import numpy as np
 from mathutils.kdtree import KDTree
+from mathutils.bvhtree import BVHTree
+_PXC = {}
+def _src_colour(me_, p_, sa_, uv_):
+    """The colour of a face's own source picture at its middle; None when there is no readable picture."""
+    d_ = diffuse_name(SRCMAT.get(SRCLIST[sa_[p_.index].value]))
+    if not uv_ or not d_ or (d_ + ".dds") not in DDS: return None
+    if d_ not in _PXC:
+        im_ = DDS[d_ + ".dds"]; w_, h_ = im_.size; a_ = np.empty(w_ * h_ * 4, np.float32); im_.pixels.foreach_get(a_); _PXC[d_] = a_.reshape(h_, w_, 4)
+    px_ = _PXC[d_]; h_, w_ = px_.shape[:2]
+    u_ = sum(uv_[l].uv.x for l in p_.loop_indices) / p_.loop_total; v_ = sum(uv_[l].uv.y for l in p_.loop_indices) / p_.loop_total
+    return px_[int((v_ % 1.0) * (h_ - 1)), int((u_ % 1.0) * (w_ - 1)), :3]
+def _hue(c_):
+    if c_ is None: return None
+    r_, g_, b_ = (float(x) for x in c_)
+    if max(r_, g_, b_) < 0.06: return None          # black says nothing about the lamp's colour
+    return "red" if r_ >= 2.5 * max(g_, b_) else None
+_xs = [(_o.matrix_world @ v.co).x for _o in objs for v in _o.data.vertices]
+_xmid = (min(_xs) + max(_xs)) / 2 if _xs else 0.0
+_LENSJOBS = {M[k].name for k in ("head_lens", "tail_lens", "reverse_lens", "indicator_lens")}
 _covers = collections.Counter()
 for _o in objs:
     _me = _o.data
+    if "srcmat" not in _me.attributes or not _me.polygons: continue
+    _sa = _me.attributes["srcmat"].data
+    _uv = _me.uv_layers[0].data if _me.uv_layers else None
     _mn = [m.name if m else "" for m in _me.materials]
-    if "glass" not in _mn or not any("lens" in n_ for n_ in _mn): continue
-    _gi = _mn.index("glass")
-    _lf = [p for p in _me.polygons if "lens" in _mn[p.material_index]]
-    _kd = KDTree(len(_lf))
-    for j_, p in enumerate(_lf): _kd.insert(p.center, j_)
-    _kd.balance()
-    for p in _me.polygons:
-        if p.material_index != _gi: continue
-        for co, j_, d in _kd.find_n(p.center, 4):
-            q = _lf[j_]; _off = p.center - co; _along = _off.dot(p.normal)
-            if d < 0.06 and q.normal.dot(p.normal) > 0.6 and -0.005 < _along < 0.06 and (_off - p.normal * _along).length < 0.06:
-                # a cover over a red tail lamp is red; over any other lamp (head, indicator, reverse) it is the clear lens
-                _tgt = q.material_index if _mn[q.material_index] == M["tail_lens"].name else None
-                if _tgt is None:
-                    if M["head_lens"].name not in _mn: _me.materials.append(M["head_lens"]); _mn.append(M["head_lens"].name)
-                    _tgt = _mn.index(M["head_lens"].name)
-                p.material_index = _tgt; _covers[_mn[_tgt]] += 1
-                break
+    _isg = [glass_shader(SRCMAT.get(SRCLIST[_sa[p.index].value])) for p in _me.polygons]
+    _cov = [p for p in _me.polygons if _isg[p.index] and _mn[p.material_index] in (_LENSJOBS | {M["glass"].name})]
+    if not _cov: continue
+    for _pass in (0, 1):
+        # Two passes: a cover made a lens in the first is what the outer of a two-layer cover (outer glass over an inner lens glass) sees
+        # behind it in the second.
+        _bk = [p for p in _me.polygons if _mn[p.material_index] != M["glass"].name and (not _isg[p.index] or _mn[p.material_index] in _LENSJOBS)]
+        if not _bk: break
+        _kd = KDTree(len(_bk))
+        for j_, p in enumerate(_bk): _kd.insert(p.center, j_)
+        _kd.balance()
+        def _job_index(k_):
+            if M[k_].name not in _mn: _me.materials.append(M[k_]); _mn.append(M[k_].name)
+            return _mn.index(M[k_].name)
+        # what lies behind a glass face: the nearest face under 6 cm facing the same way; else (a bulging headlight cover stands further out)
+        # the first face straight behind it, up to 20 cm in
+        _bv = BVHTree.FromPolygons([_me.vertices[v].co.copy() for v in range(len(_me.vertices))], [tuple(q.vertices) for q in _bk])
+        _vote = {}
+        for p in _cov:
+            q = None
+            for co, j_, d in _kd.find_n(p.center, 6):
+                q_ = _bk[j_]
+                if q_.index == p.index: continue
+                _off = p.center - co; _along = _off.dot(p.normal)
+                if _isg[q_.index] and _along < 0.005: continue     # another cover beside it on the same surface is not behind it
+                if d < 0.06 and q_.normal.dot(p.normal) > 0.6 and -0.005 < _along < 0.06 and (_off - p.normal * _along).length < 0.06: q = q_; break
+            if q is None:
+                _hit = _bv.ray_cast(p.center - p.normal * 0.001, -p.normal, 0.2)
+                if _hit[2] is not None and _bk[_hit[2]].normal.dot(p.normal) > 0.3: q = _bk[_hit[2]]
+            if q is None: continue
+            _qj = _mn[q.material_index]; _h = _hue(_src_colour(_me, q, _sa, _uv))
+            if _qj == M["tail_lens"].name or (_h == "red" and (_o.matrix_world @ p.center).x < _xmid): _vote[p.index] = "tail_lens"
+            elif _qj in _LENSJOBS or _qj == M["reflector"].name: _vote[p.index] = "head_lens"   # over a lamp, or a lamp's chrome inside
+        # One cover piece (cover faces of one source material joined by corners) is one colour: deciding face by face left a saw-tooth of red
+        # and clear where some faces lie over the red lamp and their neighbours over its black housing. A piece where a fifth or more of the
+        # area lies over a tail light becomes a tail light as a whole; a smaller share (a rear window over the third brake light) changes only
+        # those faces.
+        _par = {}
+        def _find(v):
+            while _par.setdefault(v, v) != v: _par[v] = _par[_par[v]]; v = _par[v]
+            return v
+        for p in _cov:
+            _k = (_sa[p.index].value, p.vertices[0])
+            for v in p.vertices[1:]: _par[_find((_sa[p.index].value, v))] = _find(_k)
+        _isl = collections.defaultdict(list)
+        for p in _cov: _isl[_find((_sa[p.index].value, p.vertices[0]))].append(p)
+        for _fs in _isl.values():
+            _area = sum(p.area for p in _fs) or 1.0
+            _tail = sum(p.area for p in _fs if _vote.get(p.index) == "tail_lens" or _mn[p.material_index] == M["tail_lens"].name) / _area
+            _head = sum(p.area for p in _fs if _vote.get(p.index) == "head_lens") / _area
+            # a cover piece in the front quarter is a headlight's cover when a little of it (5%) lies over the lamp: modders often build the
+            # inside black, under smoked glass, with only the projector as lamp. Elsewhere a fifth, as for the tail lights.
+            _hmin = 0.05 if sum(p.center.x for p in _fs) / len(_fs) > _xmid + 0.25 * (max(_xs) - min(_xs)) else 0.2
+            for p in _fs:
+                _was = _mn[p.material_index]
+                if _was == M["tail_lens"].name: continue      # a tail light stays one
+                if _tail >= 0.2: _new = "tail_lens"
+                elif _vote.get(p.index) == "tail_lens": _new = "tail_lens"
+                elif _head >= _hmin and _was == M["glass"].name: _new = "head_lens"   # a headlight's whole cover, not only the faces over its lens
+                elif _vote.get(p.index) == "head_lens" and _was == M["glass"].name: _new = "head_lens"
+                else: continue
+                if M[_new].name != _was:
+                    p.material_index = _job_index(_new); _covers["%s -> %s" % (_was, M[_new].name)] += 1
     _me.update()
-if _covers: L("glass lamp covers made part of their lamp: %s" % dict(_covers))
+if _covers: L("glass lamp covers take the colour behind them: %s" % dict(_covers))
 
 # A lamp lens lying on its own housing (the same surface, under 6 mm apart): GTA draws the lamp shader over it, but in the game the two
 # fight for the same pixels and the lens shows as broken-up triangles. Each such lens face's corners move 2 mm out, the way it faces.
