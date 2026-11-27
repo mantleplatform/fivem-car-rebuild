@@ -5,6 +5,16 @@ OUT = out.replace("\\", "/").rstrip("/") + "/"
 car = bpy.data.objects["car"]; me = car.data
 names = json.loads(car["part_names"])
 
+# ---- 0. no zero-area triangles: one whose corners lie on a line has no normal, and Mantle's cook refuses the whole car for it ("a normal or
+# texture coordinate is not a finite number"). The mesh is cut into the triangles the GLB will hold, and every one under 1e-10 m2 is removed.
+bm = bmesh.new(); bm.from_mesh(me)
+bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method="BEAUTY", ngon_method="BEAUTY")
+_deg = [f for f in bm.faces if f.calc_area() < 1e-10]
+bmesh.ops.delete(bm, geom=_deg, context="FACES")
+bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+bm.to_mesh(me); bm.free(); me.update()
+L("zero-area triangles removed: %d" % len(_deg))
+
 # ---- 1. surfaces: smooth panels, crisp creases (sharp edges over 35 deg), weighted normals
 bm = bmesh.new(); bm.from_mesh(me)
 sharp = 0
