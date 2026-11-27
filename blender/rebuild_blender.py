@@ -27,6 +27,8 @@ DEFAULTS = {
                                   # paint layer (players can change it). Written to <name>_paint.json for the upload step; Mantle defaults it to white.
     "extra_yfts": {},             # {"body_1.yft": "bodyshell"}: extra .yft files next to the main one whose meshes join the car under that part name
     "copy_to_other_side": [],     # parts whose twin on the other side is missing: copied across the middle as <part>_m
+    "rename_parts": {},           # {"sonnet": "bonnet"}: a source part (and its bone) under a misspelled GTA name, renamed before anything else
+    "drop_materials": "",         # source material names (regex, without .001) whose faces are thrown away (a fake shadow under the car)
 }
 
 

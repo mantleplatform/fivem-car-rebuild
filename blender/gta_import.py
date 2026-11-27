@@ -62,6 +62,11 @@ if arm is None:
     finish_fail("skipped", "yft unreadable: " + (import_err[0] if import_err else "no armature"))
 if any(".ytd" in l for l in import_err):
     finish_fail("skipped", "ytd unreadable: " + import_err[0])
+for _old, _new in S["rename_parts"].items():     # settings: a part and its bone under a misspelled name (the bone's vertex groups follow)
+    if _old in arm.data.bones: arm.data.bones[_old].name = _new
+    for o in list(bpy.data.objects):
+        if o.name == _old or o.name.startswith(_old + "."): o.name = _new + o.name[len(_old):]
+    L("RENAME part %s -> %s" % (_old, _new))
 bones = {b.name: Vector(arm.matrix_world @ b.head_local) for b in arm.data.bones}
 BONE_PARENT = {b.name: (b.parent.name if b.parent else None) for b in arm.data.bones}
 # A two-wheeler has only wheel_lf and wheel_lr bones. This script builds four-wheel cars only.
@@ -96,6 +101,16 @@ for o in list(bpy.data.objects):
         keep.append(o)
     elif o.type == "MESH":
         L("DROP %s: %s" % (o.name, r))
+
+if S["drop_materials"]:      # settings: faces of these source materials are thrown away
+    _dm = 0
+    for o in keep:
+        _bad = {i for i, sl in enumerate(o.material_slots) if sl.material and re.search(S["drop_materials"], re.sub(r"\.\d+$", "", sl.material.name))}
+        if not _bad: continue
+        _b = bmesh.new(); _b.from_mesh(o.data)
+        _gone = [f for f in _b.faces if f.material_index in _bad]
+        _dm += len(_gone); bmesh.ops.delete(_b, geom=_gone, context="FACES"); _b.to_mesh(o.data); _b.free()
+    L("drop_materials: %d faces thrown away" % _dm)
 
 # A model whose body ships as loose add-on files next to the main yft gets the named files merged in: setting extra_yfts
 # {"file.yft": "partname", ...}. Each add-on mesh is unparented in place (same coordinates as the main model),
