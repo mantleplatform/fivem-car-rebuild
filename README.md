@@ -11,6 +11,7 @@ It does this on its own:
 - Keeps what hangs from a door, hood or trunk in the source on it (a hatchback's rear glass, spoiler and the inner half of split tail lights move with the trunk), when the piece really sits on it.
 - Puts back side pieces the import places on the wrong side, and drops loose junk: pieces far outside the car and the small flat logos some cars project onto the ground.
 - Removes faces nobody can see and thins the heaviest pieces until the car fits Mantle's triangle budget.
+- Removes zero-area triangles (corners on one line). They have no normal, and Mantle's cook refuses a whole car for one ("a normal or texture coordinate is not a finite number").
 - Lays out the paint for liveries, sets smooth shading, builds the skeleton (hinges, wheel centers, steering wheel) and exports the GLB.
 - Checks the rebuilt car against the source and tells you if anything went missing.
 
