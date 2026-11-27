@@ -791,6 +791,7 @@ for _o in objs:
             _ok = {k: v for k, v in _share.items() if v >= {"tail_lens": 0.1, "head_lens": 0.05 if _front else 0.2, "indicator_lens": 0.1, "reverse_lens": 0.2}[k]}
             # a front cover over any of a headlight (2%) is the headlight's, whatever turn-signal or running-light strip shares it
             _whole = "head_lens" if _front and _share["head_lens"] >= 0.02 else max(_ok, key=lambda k: (_ok[k], k == "tail_lens")) if _ok else None
+            if _area > 0.3: _whole = None     # a piece this big (over 0.3 m2) is a window, not a lamp cover: only its faces right over a lamp change (a third brake light)
             if len(_fs) >= 20: L("cover piece %s, %d faces, %s: shares %s -> %s" % (SRCLIST[_sa[_fs[0].index].value], len(_fs), "front" if _front else "back/middle", {k: round(v, 2) for k, v in _share.items() if v}, _whole))
             for p in _fs:
                 _was = _mn[p.material_index]
